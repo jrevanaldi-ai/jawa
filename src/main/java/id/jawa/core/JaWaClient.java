@@ -74,6 +74,10 @@ public final class JaWaClient implements AutoCloseable {
         if (creds == null) {
             creds = AuthCreds.generate();
             LOG.info("No creds found — generated fresh pair: regId={}", creds.registrationId);
+        } else if (isPairing) {
+            LOG.info("Found unpaired creds (regId={}) — resuming QR pairing", creds.registrationId);
+        } else {
+            LOG.info("Found paired creds — login mode (jid={})", creds.meJid);
         }
 
         frame = new FrameSocket(null);
@@ -156,6 +160,20 @@ public final class JaWaClient implements AutoCloseable {
     }
 
     private boolean handleStanza(BinaryNode node, PairingHandler pair) throws Exception {
+        if ("stream:error".equals(node.tag())) {
+            String code = node.attr("code");
+            if ("515".equals(code)) {
+                // Documented post-pair signal — server wants us to reconnect with login creds.
+                LOG.info("Server requested restart (code=515) — expected after pairing; reconnect to enter steady state");
+            } else {
+                LOG.warn("Stream error: {}", node);
+            }
+            return true;
+        }
+        if ("xmlstreamend".equals(node.tag())) {
+            LOG.debug("Server sent stream end");
+            return true;
+        }
         if (!"iq".equals(node.tag())) return false;
 
         BinaryNode pairDevice  = node.child("pair-device");
@@ -173,6 +191,16 @@ public final class JaWaClient implements AutoCloseable {
             send(reply);
             store.save(creds);
             listener.onPaired(creds.meJid, creds.pushName, creds.platform);
+            return true;
+        }
+        // Auto-reply to keepalive pings so the connection stays up
+        if ("get".equals(node.attr("type"))
+                && "urn:xmpp:ping".equals(node.attr("xmlns"))) {
+            send(new BinaryNode("iq",
+                java.util.Map.of("to", id.jawa.util.Jid.SERVER_WHATSAPP,
+                                 "type", "result",
+                                 "id", node.attr("id")),
+                null));
             return true;
         }
         return false;
