@@ -1,0 +1,29 @@
+# Build
+build/
+.gradle/
+out/
+bin/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local session/auth artifacts (NEVER commit these — they contain device keys)
+sessions/
+auth/
+*.session
+*.creds
+
+# References (cloned for porting; not part of JaWa)
+references/
