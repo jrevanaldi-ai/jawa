@@ -65,6 +65,12 @@ public final class Main {
                             + (d.hosted() ? " (hosted)" : ""));
                     }
                 });
+                // Bootstrap Signal sessions for the target's devices
+                client.bootstrapSessions(userOnly).whenComplete((addresses, err) -> {
+                    if (err != null) { System.err.println(">>> session bootstrap failed: " + err); err.printStackTrace(); return; }
+                    System.out.println(">>> Installed " + addresses.size() + " Signal session(s):");
+                    for (var a : addresses) System.out.println("    " + a);
+                });
             }
             @Override public void onStanza(id.jawa.binary.BinaryNode node) {
                 System.out.println("RX: " + node.tag() + " " + node.attrs());

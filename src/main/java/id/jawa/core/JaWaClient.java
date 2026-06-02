@@ -12,7 +12,10 @@ import id.jawa.pair.ClientPayloadBuilder;
 import id.jawa.pair.PairingHandler;
 import id.jawa.proto.Wa;
 import id.jawa.signal.InMemorySignalKeyStore;
+import id.jawa.signal.JaWaProtocolStore;
+import id.jawa.signal.PreKeyBundleFetcher;
 import id.jawa.signal.PreKeyManager;
+import id.jawa.signal.SessionBootstrap;
 import id.jawa.signal.SignalKeyStore;
 import id.jawa.store.AuthCreds;
 import id.jawa.store.AuthStore;
@@ -58,6 +61,7 @@ public final class JaWaClient implements AutoCloseable {
 
     private final AuthStore store;
     private final SignalKeyStore signalStore = new InMemorySignalKeyStore();
+    private JaWaProtocolStore protocolStore;  // initialised in connect() once creds are loaded
     private Listener listener = new Listener() {};
     private FrameSocket frame;
     private NoiseHandshake noise;
@@ -130,6 +134,7 @@ public final class JaWaClient implements AutoCloseable {
         frame.send(clientFinish.toByteArray());
 
         transport = noise.finish();
+        protocolStore = new JaWaProtocolStore(creds);
         LOG.info("Noise handshake complete — steady state {}", isPairing ? "(pairing)" : "(login)");
 
         // ---- Start reader loop ----
@@ -190,6 +195,45 @@ public final class JaWaClient implements AutoCloseable {
         var f = new java.util.concurrent.CompletableFuture<BinaryNode>();
         sendIq(iq, f::complete);
         return f;
+    }
+
+    /** Fetch pre-key bundles for the given per-device JIDs and install Signal sessions for each. */
+    public java.util.concurrent.CompletableFuture<java.util.List<org.whispersystems.libsignal.SignalProtocolAddress>>
+            fetchBundlesAndInstallSessions(java.util.List<String> deviceJids) {
+        String iqId = newIqId();
+        BinaryNode q = PreKeyBundleFetcher.buildFetchStanza(iqId, deviceJids);
+        LOG.debug("Sent pre-key fetch IQ id={} for {} devices", iqId, deviceJids.size());
+        return sendIqAsync(q).thenApply(resp -> {
+            if ("error".equals(resp.attr("type"))) {
+                LOG.warn("Pre-key fetch error: {}", resp);
+                return java.util.List.of();
+            }
+            var bundles = PreKeyBundleFetcher.parseResponse(resp);
+            LOG.debug("Parsed {} bundles", bundles.size());
+            return SessionBootstrap.installAll(protocolStore, bundles);
+        });
+    }
+
+    /**
+     * Convenience: bootstrap Signal sessions for every active device of {@code targetUser}.
+     * Runs USync, then fetches the pre-key bundle for each device, then installs sessions.
+     */
+    public java.util.concurrent.CompletableFuture<java.util.List<org.whispersystems.libsignal.SignalProtocolAddress>>
+            bootstrapSessions(String targetUser) {
+        return queryDevices(java.util.List.of(targetUser))
+            .thenCompose(devicesMap -> {
+                var devices = devicesMap.getOrDefault(targetUser, java.util.List.of());
+                if (devices.isEmpty()) {
+                    java.util.List<org.whispersystems.libsignal.SignalProtocolAddress> empty = java.util.List.of();
+                    return java.util.concurrent.CompletableFuture.completedFuture(empty);
+                }
+                id.jawa.util.Jid base = id.jawa.util.Jid.parse(targetUser);
+                String user = base.user();
+                String server = base.server();
+                java.util.List<String> deviceJids = new java.util.ArrayList<>(devices.size());
+                for (var d : devices) deviceJids.add(d.asJid(user, server).asString());
+                return fetchBundlesAndInstallSessions(deviceJids);
+            });
     }
 
     /**

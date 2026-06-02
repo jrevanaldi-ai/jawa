@@ -30,6 +30,17 @@ repositories {
     mavenCentral()
 }
 
+configurations.all {
+    resolutionStrategy.eachDependency {
+        // signal-protocol-java 2.8.1 ships protobuf-javalite:3.10.0 which is incompatible
+        // with newer protobuf-java schema parsing. Pin all protobuf artifacts to a single
+        // matched version so libsignal's lite messages parse correctly.
+        if (requested.group == "com.google.protobuf") {
+            useVersion("3.10.0")
+        }
+    }
+}
+
 dependencies {
     // Crypto primitives — Curve25519, AES-GCM, HKDF, SHA256, HMAC
     api("org.bouncycastle:bcprov-jdk18on:1.78.1")
@@ -38,13 +49,10 @@ dependencies {
     // GPL-3.0 — license cascades to JaWa.
     // TODO: evaluate org.signal:libsignal-client (current, native deps) vs signal-protocol-java (archived, pure-Java).
     // Starting with the archived pure-Java port for portability; Signal Protocol algorithms are stable.
-    api("org.whispersystems:signal-protocol-java:2.8.1") {
-        // ships an old protobuf-javalite that conflicts with our protobuf-java
-        exclude(group = "com.google.protobuf")
-    }
+    api("org.whispersystems:signal-protocol-java:2.8.1")
 
     // Protobuf runtime
-    api("com.google.protobuf:protobuf-java:3.25.5")
+    api("com.google.protobuf:protobuf-java:3.10.0")
 
     // WebSocket client
     implementation("com.neovisionaries:nv-websocket-client:2.14")
@@ -66,7 +74,7 @@ dependencies {
 
 protobuf {
     protoc {
-        artifact = "com.google.protobuf:protoc:3.25.5"
+        artifact = "com.google.protobuf:protoc:3.10.0"
     }
 }
 
