@@ -165,11 +165,47 @@ public final class JaWaClient implements AutoCloseable {
         }
     }
 
-    private final java.util.Map<String, Runnable> pendingIqResults = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<String, java.util.function.Consumer<BinaryNode>> pendingIqResults
+        = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** Random 16-char hex id for outgoing IQ stanzas. */
     private String newIqId() {
         return Bytes.toHex(Bytes.random(8));
+    }
+
+    /**
+     * Send an IQ stanza and register a callback for the {@code <iq type=result|error>} response.
+     * The callback runs on the reader thread.
+     */
+    public String sendIq(BinaryNode iq, java.util.function.Consumer<BinaryNode> onResponse) {
+        String id = iq.attr("id");
+        if (id == null) throw new IllegalArgumentException("iq has no id attribute");
+        if (onResponse != null) pendingIqResults.put(id, onResponse);
+        send(iq);
+        return id;
+    }
+
+    /** Send an IQ stanza and return a future that completes with the response. */
+    public java.util.concurrent.CompletableFuture<BinaryNode> sendIqAsync(BinaryNode iq) {
+        var f = new java.util.concurrent.CompletableFuture<BinaryNode>();
+        sendIq(iq, f::complete);
+        return f;
+    }
+
+    /**
+     * Query the device list for one or more JIDs (USync).
+     * Returns {@code targetJid → ordered device list}.
+     */
+    public java.util.concurrent.CompletableFuture<java.util.Map<String, java.util.List<id.jawa.message.DeviceInfo>>>
+            queryDevices(java.util.Collection<String> targetJids) {
+        String iqId = newIqId();
+        String sid = "jawa-" + Bytes.toHex(Bytes.random(4));
+        BinaryNode q = id.jawa.message.UsyncQuery.buildDeviceListQuery(iqId, sid, targetJids);
+        LOG.debug("Sent USync device-list query id={} sid={} for {}", iqId, sid, targetJids);
+        return sendIqAsync(q).thenApply(resp -> {
+            LOG.debug("USync response: {}", resp);
+            return id.jawa.message.UsyncQuery.parseDeviceListResult(resp);
+        });
     }
 
     /** Upload {@code PRE_KEY_UPLOAD_COUNT} one-time pre-keys to the server. */
@@ -181,7 +217,11 @@ public final class JaWaClient implements AutoCloseable {
         }
         String iqId = newIqId();
         BinaryNode iq = PreKeyManager.buildUploadStanza(iqId, creds, preKeys);
-        pendingIqResults.put(iqId, () -> {
+        sendIq(iq, response -> {
+            if ("error".equals(response.attr("type"))) {
+                LOG.warn("Pre-key upload rejected: {}", response);
+                return;
+            }
             PreKeyManager.markUploaded(creds, preKeys);
             try { store.save(creds); } catch (Exception e) { LOG.warn("Failed to save creds after pre-key upload", e); }
             LOG.info("Uploaded {} pre-keys (ids {}..{})",
@@ -189,7 +229,6 @@ public final class JaWaClient implements AutoCloseable {
                 preKeys.keySet().iterator().next(),
                 preKeys.keySet().stream().reduce((a, b) -> b).get());
         });
-        send(iq);
         LOG.debug("Sent pre-key upload IQ id={} ({} keys)", iqId, preKeys.size());
     }
 
@@ -219,19 +258,12 @@ public final class JaWaClient implements AutoCloseable {
         }
         if (!"iq".equals(node.tag())) return false;
 
-        // Result for an IQ we sent — fire the pending callback if any.
-        if ("result".equals(node.attr("type"))) {
+        // Result / error for an IQ we sent — fire the pending callback if any.
+        String type = node.attr("type");
+        if ("result".equals(type) || "error".equals(type)) {
             String id = node.attr("id");
-            Runnable cb = id == null ? null : pendingIqResults.remove(id);
-            if (cb != null) { cb.run(); return true; }
-        }
-        // Error for an IQ we sent — clean up + log.
-        if ("error".equals(node.attr("type"))) {
-            String id = node.attr("id");
-            if (id != null && pendingIqResults.remove(id) != null) {
-                LOG.warn("IQ error response for id={}: {}", id, node);
-                return true;
-            }
+            var cb = id == null ? null : pendingIqResults.remove(id);
+            if (cb != null) { cb.accept(node); return true; }
         }
 
         BinaryNode pairDevice  = node.child("pair-device");

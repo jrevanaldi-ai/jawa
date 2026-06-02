@@ -47,6 +47,24 @@ public final class Main {
             }
             @Override public void onConnected() {
                 System.out.println(">>> Connected");
+                // Demo: query devices for me-jid (or another jid via -Djawa.target=...)
+                String target = System.getProperty("jawa.target",
+                    client.creds() != null ? client.creds().meJid : null);
+                if (target == null) return;
+                // Strip device suffix — usync expects bare PN jid
+                String userOnly = target.contains(":")
+                    ? target.substring(0, target.indexOf(':')) + "@" + target.substring(target.indexOf('@') + 1)
+                    : target;
+                client.queryDevices(java.util.List.of(userOnly)).thenAccept(map -> {
+                    System.out.println(">>> Device list for " + userOnly + ":");
+                    var list = map.getOrDefault(userOnly, java.util.List.of());
+                    if (list.isEmpty()) System.out.println("    (no devices returned)");
+                    for (var d : list) {
+                        System.out.println("    device id=" + d.id()
+                            + " keyIndex=" + d.keyIndex()
+                            + (d.hosted() ? " (hosted)" : ""));
+                    }
+                });
             }
             @Override public void onStanza(id.jawa.binary.BinaryNode node) {
                 System.out.println("RX: " + node.tag() + " " + node.attrs());
