@@ -50,4 +50,22 @@ public final class MessageEncoder {
     public static Wa.Message text(String body) {
         return Wa.Message.newBuilder().setConversation(body).build();
     }
+
+    /**
+     * Wrap {@code inner} in a {@code DeviceSentMessage} envelope addressed to
+     * {@code destinationJid}. Used when a companion device sends a message that should
+     * also appear on the user's other own devices — the phone routes the inner message
+     * to the chat identified by {@code destinationJid}.
+     *
+     * <p>Without this envelope, the phone Signal-decrypts successfully but has no chat
+     * to attribute the message to, so it silently drops the payload (server still ACKs).
+     */
+    public static Wa.Message deviceSent(String destinationJid, Wa.Message inner) {
+        return Wa.Message.newBuilder()
+            .setDeviceSentMessage(Wa.Message.DeviceSentMessage.newBuilder()
+                .setDestinationJid(destinationJid)
+                .setMessage(inner)
+                .build())
+            .build();
+    }
 }

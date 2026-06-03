@@ -63,8 +63,15 @@ public final class MessageSender {
         Jid myJid = Jid.parse(creds.meJid);
         if (myJid == null) throw new IllegalStateException("creds.meJid invalid");
         SignalProtocolAddress myAddr = new SignalProtocolAddress(myJid.user(), myJid.device());
+        String ownUser = myJid.user();
 
-        byte[] padded = MessageEncoder.encode(message);
+        // Foreign-recipient plaintext: the bare Wa.Message.
+        // Own-companion plaintext: wrap in DeviceSentMessage{destinationJid, message} so the
+        // recipient's phone knows which chat to attribute it to. Without this, the phone
+        // Signal-decrypts but silently drops the payload — server still ACKs (transport
+        // accepted) but no chat insert and no delivery receipt fires.
+        byte[] msgPadded = MessageEncoder.encode(message);
+        byte[] dsmPadded = null; // built lazily on first own-companion device
 
         List<BinaryNode> participants = new ArrayList<>();
         Map<SignalProtocolAddress, Integer> typeMap = new HashMap<>();
@@ -74,11 +81,22 @@ public final class MessageSender {
             Jid jid = Jid.parse(dj);
             if (jid == null) continue;
             SignalProtocolAddress addr = SessionBootstrap.addressFor(jid);
-            if (addr.equals(myAddr)) continue; // never encrypt for our own device
+            if (addr.equals(myAddr)) continue; // skip the exact sender device
+
+            byte[] plaintext;
+            if (jid.user().equals(ownUser)) {
+                if (dsmPadded == null) {
+                    dsmPadded = MessageEncoder.encode(
+                        MessageEncoder.deviceSent(recipientBareJid, message));
+                }
+                plaintext = dsmPadded;
+            } else {
+                plaintext = msgPadded;
+            }
 
             try {
                 SessionCipher cipher = new SessionCipher(store, addr);
-                CiphertextMessage ct = cipher.encrypt(padded);
+                CiphertextMessage ct = cipher.encrypt(plaintext);
                 String type = ct.getType() == CiphertextMessage.PREKEY_TYPE ? "pkmsg" : "msg";
                 if ("pkmsg".equals(type)) includeDeviceIdentity = true;
                 typeMap.put(addr, ct.getType());
