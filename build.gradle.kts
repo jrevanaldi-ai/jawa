@@ -13,6 +13,11 @@ application {
 tasks.named<JavaExec>("run") {
     val sf = providers.gradleProperty("sessionFile").orNull
     if (sf != null) systemProperty("jawa.session", sf)
+    // Forward any -Djawa.* set on the Gradle CLI through to the application JVM.
+    System.getProperties().forEach { k, v ->
+        val key = k.toString()
+        if (key.startsWith("jawa.")) systemProperty(key, v.toString())
+    }
     standardInput = System.`in`
 }
 

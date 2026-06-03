@@ -66,6 +66,7 @@ public final class JaWaClient implements AutoCloseable {
     private final SignalKeyStore signalStore = new InMemorySignalKeyStore();
     private JaWaProtocolStore protocolStore;  // initialised in connect() once creds are loaded
     private PairingCodeHandler pairCodeHandler; // populated on demand for pair-code flow
+    private java.util.concurrent.ScheduledExecutorService keepalive;
     private Listener listener = new Listener() {};
     private FrameSocket frame;
     private NoiseHandshake noise;
@@ -144,6 +145,42 @@ public final class JaWaClient implements AutoCloseable {
         // ---- Start reader loop ----
 
         readerThread = Thread.ofVirtual().name("jawa-reader").start(this::readLoop);
+        startKeepalive();
+    }
+
+    /** Schedule a periodic w:p keepalive ping so the server doesn't disconnect us for inactivity. */
+    private void startKeepalive() {
+        if (keepalive != null) return;
+        keepalive = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = Thread.ofVirtual().name("jawa-keepalive").unstarted(r);
+            t.setDaemon(true);
+            return t;
+        });
+        // Whatsmeow rolls a random interval per tick in [20..30) sec. We do the same to avoid
+        // any deterministic-traffic heuristic on the server side.
+        Runnable tick = new Runnable() {
+            @Override public void run() {
+                if (closing.get() || frame == null || !frame.isOpen()) return;
+                try {
+                    String iqId = newIqId();
+                    BinaryNode ping = new BinaryNode("iq",
+                        java.util.Map.of(
+                            "to",    id.jawa.util.Jid.SERVER_WHATSAPP,
+                            "type",  "get",
+                            "xmlns", "w:p",
+                            "id",    iqId
+                        ),
+                        java.util.List.of(new BinaryNode("ping", java.util.Map.of(), null)));
+                    sendIq(ping, resp -> LOG.trace("keepalive ack id={}", iqId));
+                } catch (Throwable t) {
+                    LOG.warn("Keepalive send failed", t);
+                }
+                // Random in [20..30) seconds — matches whatsmeow's KeepAliveIntervalMin/Max.
+                long delay = 20 + java.util.concurrent.ThreadLocalRandom.current().nextInt(10);
+                keepalive.schedule(this, delay, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        };
+        keepalive.schedule(tick, 20, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     /** Block the caller until the reader thread terminates (e.g. logout, disconnect). */
@@ -164,8 +201,12 @@ public final class JaWaClient implements AutoCloseable {
                 BinaryNode node = BinaryDecoder.decode(plain);
                 LOG.trace("recv: {}", node);
 
-                if (handleStanza(node, pair)) continue;
-                listener.onStanza(node);
+                try {
+                    if (handleStanza(node, pair)) continue;
+                    listener.onStanza(node);
+                } catch (Throwable per) {
+                    LOG.warn("Error handling stanza {} — continuing", node.tag(), per);
+                }
             }
         } catch (Throwable t) {
             if (!closing.get()) listener.onError(t);
@@ -399,11 +440,16 @@ public final class JaWaClient implements AutoCloseable {
         // Auto-reply to keepalive pings so the connection stays up
         if ("get".equals(node.attr("type"))
                 && "urn:xmpp:ping".equals(node.attr("xmlns"))) {
-            send(new BinaryNode("iq",
-                java.util.Map.of("to", id.jawa.util.Jid.SERVER_WHATSAPP,
-                                 "type", "result",
-                                 "id", node.attr("id")),
-                null));
+            String pid = node.attr("id");
+            if (pid != null) {
+                send(new BinaryNode("iq",
+                    java.util.Map.of("to", id.jawa.util.Jid.SERVER_WHATSAPP,
+                                     "type", "result",
+                                     "id", pid),
+                    null));
+            } else {
+                LOG.warn("Ping IQ has no id; cannot ack: {}", node);
+            }
             return true;
         }
         return false;
@@ -419,6 +465,7 @@ public final class JaWaClient implements AutoCloseable {
     @Override
     public void close() {
         if (!closing.compareAndSet(false, true)) return;
+        if (keepalive != null) { keepalive.shutdownNow(); keepalive = null; }
         if (frame != null) frame.close();
     }
 

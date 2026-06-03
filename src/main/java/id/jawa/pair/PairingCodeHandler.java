@@ -47,8 +47,12 @@ public final class PairingCodeHandler {
     /** PBKDF2 iterations used for the pairing-code key derivation (Baileys + whatsmeow). */
     public static final int PBKDF2_ITERATIONS = 2 << 16; // 131_072
 
-    /** WA platform id used in the companion_hello stanza ("CHROME" by default in Baileys). */
-    public static final int COMPANION_PLATFORM_ID = 0; // Chrome
+    /**
+     * WA platform id used in the companion_hello stanza.
+     * Sent as a string (nibble-packed on the wire); "1" = Chrome, "7" = Electron, etc.
+     * "0" = Unknown is REJECTED by the server (bad-request 400).
+     */
+    public static final String COMPANION_PLATFORM_ID = "1"; // Chrome
 
     private final AuthCreds creds;
     private String pairingCode;
@@ -83,9 +87,13 @@ public final class PairingCodeHandler {
             List.of(
                 new BinaryNode("link_code_pairing_wrapped_companion_ephemeral_pub", Map.of(), wrapped),
                 new BinaryNode("companion_server_auth_key_pub", Map.of(), creds.noiseKey.publicKey()),
-                new BinaryNode("companion_platform_id",          Map.of(), Integer.toString(COMPANION_PLATFORM_ID).getBytes()),
-                new BinaryNode("companion_platform_display",     Map.of(), "Chrome (JaWa)".getBytes()),
-                new BinaryNode("link_code_pairing_nonce",        Map.of(), "0".getBytes())
+                // String content → encoder picks the optimal form (nibble for digits,
+                // raw for the display text). Matches Baileys' wire output.
+                new BinaryNode("companion_platform_id",      Map.of(), COMPANION_PLATFORM_ID),
+                // Server validates this as "Browser (OS)" with only common values accepted —
+                // arbitrary brand names ("Chrome (JaWa)") trigger bad-request 400.
+                new BinaryNode("companion_platform_display", Map.of(), "Chrome (Linux)"),
+                new BinaryNode("link_code_pairing_nonce",    Map.of(), "0")
             ));
 
         return new BinaryNode("iq",

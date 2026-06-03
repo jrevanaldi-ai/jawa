@@ -41,6 +41,15 @@ class PairingCodeHandlerTest {
         byte[] wrapped = reg.child("link_code_pairing_wrapped_companion_ephemeral_pub").bytesContent();
         assertThat(wrapped).hasSize(80);
 
+        // Server-validated wire values — these were live-discovered after a 400 bad-request
+        // on platform_id=0 and display="Chrome (JaWa)". Lock them in so a future regression
+        // on these exact constants cannot slip through unit tests silently.
+        assertThat(reg.child("companion_server_auth_key_pub").bytesContent())
+            .containsExactly(creds.noiseKey.publicKey());
+        assertThat(reg.child("companion_platform_id").textContent()).isEqualTo("1");
+        assertThat(reg.child("companion_platform_display").textContent()).isEqualTo("Chrome (Linux)");
+        assertThat(reg.child("link_code_pairing_nonce").textContent()).isEqualTo("0");
+
         // 8-char Crockford code
         assertThat(h.pairingCode()).hasSize(8);
 
