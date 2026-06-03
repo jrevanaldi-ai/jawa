@@ -47,7 +47,7 @@ Requires JDK 21+. The Gradle wrapper installs the right Gradle version automatic
 ./gradlew build
 ```
 
-Runs the full test suite (29 tests across binary codec and crypto primitives).
+Runs the full test suite (53 tests across binary codec, crypto primitives, pair-code helpers, USync, pre-key manager, and message-send shape).
 
 ## Try it — pair with WhatsApp
 
@@ -108,12 +108,15 @@ Point your WhatsApp app at the QR (Settings → Linked Devices → Link a Device
 - [x] **M2** — Noise XX handshake + WebSocket transport, server CertChain validation
 - [x] **M3** — ClientPayload (register + login)
 - [x] **M4** — QR pairing (live-verified end-to-end: scan → ADV chain verify → creds persist → login)
-- [x] **M4.5** — Phone-number pairing code (PBKDF2 + AES-CTR wrap, X25519 × 2 + HKDF advSecret derivation)
+- [x] **M4.5** — Phone-number pairing code (PBKDF2 + AES-CTR wrap, X25519 × 2 + HKDF advSecret derivation; live-verified)
+  - [x] **M4.5.1** — `companion_hello` wire-value fix (`platform_id="1"`, canonical display, nibble-packed nonce) + steady-state hardening (w:p keepalive, per-stanza error containment)
+  - [x] **M4.5.2** — Post-pair auto-reconnect to login mode (`FrameSocket` disconnect sentinel + `JaWaClient` reconnect handler; closes the 401-revoke window)
 - [~] **M5** — Send + receive text 1-on-1
   - [x] Pre-key upload (`<iq xmlns=encrypt>`)
   - [x] USync device list query
   - [x] Signal session bootstrap (libsignal X3DH)
-  - [x] Encrypt + send `<message>` (code complete; live verify pending re-pair)
+  - [x] Encrypt + send `<message>` (live-verified end-to-end against a real account)
+  - [x] **M5.D.1** — `DeviceSentMessage` wrap for own-companion devices (fixes silent-drop on send-to-self)
   - [ ] Receive + decrypt incoming `<enc>`
 - [ ] **M6** — Receipts, retries, ack flow
 - [ ] **M7** — Group messaging (Sender Keys distribution + skmsg)
