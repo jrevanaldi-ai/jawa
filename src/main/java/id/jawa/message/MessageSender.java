@@ -137,8 +137,11 @@ public final class MessageSender {
         return new Result(stanza, typeMap);
     }
 
-    /** Re-serialise {@link Wa.ADVSignedDeviceIdentity} without {@code accountSignatureKey}. */
-    private static byte[] encodeDeviceIdentityForSend(byte[] fullAccountBytes) {
+    /**
+     * Re-serialise {@link Wa.ADVSignedDeviceIdentity} without {@code accountSignatureKey}.
+     * Package-visible so {@link GroupSender} can include it in the group-send stanza.
+     */
+    static byte[] encodeDeviceIdentityForSend(byte[] fullAccountBytes) {
         try {
             Wa.ADVSignedDeviceIdentity full = Wa.ADVSignedDeviceIdentity.parseFrom(fullAccountBytes);
             Wa.ADVSignedDeviceIdentity.Builder b = Wa.ADVSignedDeviceIdentity.newBuilder()

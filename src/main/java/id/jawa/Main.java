@@ -61,6 +61,17 @@ public final class Main {
 
             @Override public void onConnected() {
                 System.out.println(">>> Connected");
+                // Optional: send to a specific group (-Djawa.target_group=<full-jid>).
+                String targetGroup = System.getProperty("jawa.target_group");
+                if (targetGroup != null && !targetGroup.isBlank()) {
+                    String text = System.getProperty("jawa.text", "Hello group from JaWa "
+                        + java.time.LocalTime.now());
+                    client.sendGroupText(targetGroup, text).whenComplete((msgId, err) -> {
+                        if (err != null) { System.err.println(">>> group send failed: " + err); err.printStackTrace(); return; }
+                        System.out.println(">>> Sent group message id=" + msgId + " text=\"" + text + "\"");
+                    });
+                    return; // skip the default DM send below
+                }
                 // Optional: list joined groups (-Djawa.list_groups=1).
                 if ("1".equals(System.getProperty("jawa.list_groups"))) {
                     client.queryJoinedGroups().whenComplete((groups, err) -> {

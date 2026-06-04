@@ -385,6 +385,60 @@ public final class JaWaClient implements AutoCloseable {
     }
 
     /**
+     * Send a text message to a group. Pipeline:
+     * 1. Resolve participants by looking up the group in our joined-groups list.
+     * 2. USync each participant's bare JID to enumerate every device they have.
+     * 3. Bootstrap libsignal sessions for every participant device that doesn't have one.
+     * 4. Hand off to {@link id.jawa.message.GroupSender} which builds + encrypts the stanza.
+     */
+    public java.util.concurrent.CompletableFuture<String>
+            sendGroupText(String groupJid, String text) {
+        return queryJoinedGroups().thenCompose(groups -> {
+            id.jawa.message.GroupListQuery.GroupInfo target = null;
+            for (var g : groups) {
+                if (g.jid().equals(groupJid)) { target = g; break; }
+            }
+            if (target == null) {
+                return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IllegalStateException("not a member of group: " + groupJid));
+            }
+            // Group-list participant JIDs may be device-suffixed; strip to bare for USync.
+            java.util.LinkedHashSet<String> bareUsers = new java.util.LinkedHashSet<>();
+            for (String pj : target.participantJids()) {
+                id.jawa.util.Jid j = id.jawa.util.Jid.parse(pj);
+                if (j == null) continue;
+                bareUsers.add(j.user() + "@" + j.server());
+            }
+            if (bareUsers.isEmpty()) {
+                return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IllegalStateException("group has no participants"));
+            }
+            return queryDevices(bareUsers).thenCompose(devicesMap -> {
+                java.util.List<String> allDeviceJids = new java.util.ArrayList<>();
+                for (var entry : devicesMap.entrySet()) {
+                    id.jawa.util.Jid base = id.jawa.util.Jid.parse(entry.getKey());
+                    if (base == null) continue;
+                    for (var d : entry.getValue()) {
+                        allDeviceJids.add(d.asJid(base.user(), base.server()).asString());
+                    }
+                }
+                return fetchBundlesAndInstallSessions(allDeviceJids).thenApply(addresses -> {
+                    String msgId = newIqId().toUpperCase();
+                    id.jawa.proto.Wa.Message msg = MessageEncoder.text(text);
+                    id.jawa.message.GroupSender.Result result =
+                        id.jawa.message.GroupSender.buildStanza(
+                            protocolStore, senderKeyStore, creds, msgId,
+                            groupJid, allDeviceJids, msg);
+                    send(result.stanza());
+                    LOG.info("Sent group message id={} to={} ({} participant device(s), SKDM to {})",
+                        msgId, groupJid, allDeviceJids.size(), result.skdmRecipients());
+                    return msgId;
+                });
+            });
+        });
+    }
+
+    /**
      * Query the server for the list of groups this account participates in. Each entry
      * carries the group JID, subject, creator, timestamps, and the per-member device
      * list (one entry per participant, device-suffixed).
