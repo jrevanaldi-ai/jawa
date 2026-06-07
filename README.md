@@ -49,6 +49,40 @@ Requires JDK 21+. The Gradle wrapper installs the right Gradle version automatic
 
 Runs the full test suite (53 tests across binary codec, crypto primitives, pair-code helpers, USync, pre-key manager, and message-send shape).
 
+## Use as a library (JitPack)
+
+JaWa is published via [JitPack](https://jitpack.io) — no manual Maven Central step yet.
+Each non-SNAPSHOT `version` bump on `main` auto-creates a matching `v<version>` git tag
+and GitHub Release (see `.github/workflows/release.yml`), which JitPack resolves on demand.
+
+Gradle (Kotlin DSL):
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven("https://jitpack.io")
+}
+
+dependencies {
+    implementation("com.github.jrevanaldi-ai:jawa:<tag>")  // e.g. v0.1.0
+}
+```
+
+Maven:
+
+```xml
+<repositories>
+  <repository><id>jitpack.io</id><url>https://jitpack.io</url></repository>
+</repositories>
+<dependency>
+  <groupId>com.github.jrevanaldi-ai</groupId>
+  <artifactId>jawa</artifactId>
+  <version><!-- tag, e.g. v0.1.0 --></version>
+</dependency>
+```
+
+`logback-classic` is `runtimeOnly` — supply your own SLF4J binding.
+
 ## Try it — pair with WhatsApp
 
 Two flows are supported on first run:

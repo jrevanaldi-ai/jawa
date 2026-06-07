@@ -3,6 +3,7 @@
 plugins {
     `java-library`
     application
+    `maven-publish`
     id("com.google.protobuf") version "0.9.4"
 }
 
@@ -22,13 +23,14 @@ tasks.named<JavaExec>("run") {
 }
 
 group = "id.jawa"
-version = "0.0.1-SNAPSHOT"
+version = "0.0.1"
 
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
     withSourcesJar()
+    withJavadocJar()
 }
 
 repositories {
@@ -104,5 +106,42 @@ tasks.jar {
             "Implementation-Version" to project.version,
             "Automatic-Module-Name" to "id.jawa"
         )
+    }
+}
+
+// Javadoc on a pre-alpha protocol port is full of unstable signatures and partial
+// kdocs — let the task succeed instead of failing the build on missing tags.
+tasks.withType<Javadoc>().configureEach {
+    (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:none", "-quiet")
+    isFailOnError = false
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+            pom {
+                name.set("JaWa")
+                description.set("Unofficial WhatsApp Web library for Java 21+, ported from Baileys and whatsmeow.")
+                url.set("https://github.com/jrevanaldi-ai/jawa")
+                licenses {
+                    license {
+                        name.set("GNU General Public License v3.0 or later")
+                        url.set("https://www.gnu.org/licenses/gpl-3.0.html")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("jrevanaldi-ai")
+                        name.set("jrevanaldi-ai")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:https://github.com/jrevanaldi-ai/jawa.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/jrevanaldi-ai/jawa.git")
+                    url.set("https://github.com/jrevanaldi-ai/jawa")
+                }
+            }
+        }
     }
 }
