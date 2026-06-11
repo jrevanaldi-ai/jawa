@@ -70,10 +70,11 @@ public final class JaWaClient implements AutoCloseable {
     }
 
     private final AuthStore store;
-    private final SignalKeyStore signalStore = new InMemorySignalKeyStore();
+    private SignalKeyStore signalStore = new InMemorySignalKeyStore();
     private final id.jawa.signal.InMemorySenderKeyStore senderKeyStore = new id.jawa.signal.InMemorySenderKeyStore();
     private final java.nio.file.Path signalDir; // null = sessions in-memory
     private id.jawa.signal.FileSessionStorage sessionStorage; // built once when connecting if signalDir is set
+    private id.jawa.signal.FilePreKeyStorage preKeyStorage;   // ditto
     private JaWaProtocolStore protocolStore;  // initialised in connect() once creds are loaded
     private PairingCodeHandler pairCodeHandler; // populated on demand for pair-code flow
     private java.util.concurrent.ScheduledExecutorService keepalive;
@@ -169,9 +170,30 @@ public final class JaWaClient implements AutoCloseable {
 
         transport = noise.finish();
         if (signalDir != null && sessionStorage == null) {
-            sessionStorage = new id.jawa.signal.FileSessionStorage(signalDir);
+            sessionStorage = new id.jawa.signal.FileSessionStorage(signalDir.resolve("sessions"));
+            preKeyStorage  = new id.jawa.signal.FilePreKeyStorage(signalDir.resolve("prekeys"));
+            signalStore    = new InMemorySignalKeyStore(preKeyStorage);
         }
         protocolStore = new JaWaProtocolStore(creds, sessionStorage);
+        // Re-mirror any persisted pre-keys into libsignal's protocolStore so inbound
+        // <enc type=pkmsg> referencing a previously-uploaded one-time pre-key id can
+        // still resolve after restart.
+        if (preKeyStorage != null) {
+            for (var entry : preKeyStorage.snapshot().entrySet()) {
+                try {
+                    byte[] prefixedPub = Curve25519.prependType(entry.getValue().publicKey());
+                    org.whispersystems.libsignal.ecc.ECKeyPair kp =
+                        new org.whispersystems.libsignal.ecc.ECKeyPair(
+                            org.whispersystems.libsignal.ecc.Curve.decodePoint(prefixedPub, 0),
+                            org.whispersystems.libsignal.ecc.Curve.decodePrivatePoint(entry.getValue().privateKey()));
+                    protocolStore.storePreKey(entry.getKey(),
+                        new org.whispersystems.libsignal.state.PreKeyRecord(entry.getKey(), kp));
+                } catch (org.whispersystems.libsignal.InvalidKeyException e) {
+                    LOG.warn("Failed to re-mirror persisted pre-key {} into protocolStore", entry.getKey(), e);
+                }
+            }
+            LOG.info("Re-mirrored {} persisted pre-key(s) into protocolStore", preKeyStorage.size());
+        }
         LOG.info("Noise handshake complete — steady state {}", isPairing ? "(pairing)" : "(login)");
 
         // ---- Start reader loop ----
