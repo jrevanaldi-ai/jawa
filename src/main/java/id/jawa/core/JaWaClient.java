@@ -520,6 +520,30 @@ public final class JaWaClient implements AutoCloseable {
         });
     }
 
+    /**
+     * Tell the server this device is online and available for routing. Without this,
+     * the server treats the device as background/idle: last-seen freezes at login
+     * time and peers' messages don't get delivered as {@code <message>} stanzas to us.
+     *
+     * <p>Stanza shape: {@code <presence type="available" name="<pushName>"/>}. The
+     * {@code name} attr is what other users see as our display name; we use
+     * {@code creds.pushName} when available, falling back to {@code "JaWa"}.
+     */
+    private void sendPresenceAvailable() {
+        String name = (creds != null && creds.pushName != null && !creds.pushName.isBlank())
+            ? creds.pushName
+            : "JaWa";
+        try {
+            send(new BinaryNode("presence", java.util.Map.of(
+                "type", "available",
+                "name", name
+            ), null));
+            LOG.debug("Sent presence available (name=\"{}\")", name);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to send presence available", e);
+        }
+    }
+
     /** Upload {@code PRE_KEY_UPLOAD_COUNT} one-time pre-keys to the server. */
     private void uploadPreKeys() {
         var preKeys = PreKeyManager.generate(creds, signalStore, PRE_KEY_UPLOAD_COUNT);
@@ -581,6 +605,7 @@ public final class JaWaClient implements AutoCloseable {
                 node.attr("lid", creds.meLid),
                 node.attr("platform", creds.platform));
             sendActivePassive();
+            sendPresenceAvailable();
             listener.onConnected();
             uploadPreKeys();
             return true;
@@ -596,7 +621,16 @@ public final class JaWaClient implements AutoCloseable {
             } catch (Throwable t) {
                 LOG.warn("Failed to handle link_code notification", t);
             }
-            return true;
+            // fall through to ack + listener — pair-code notification still needs an ack
+        }
+
+        // Server-pushed notifications and receipts MUST be acked, otherwise the offline
+        // queue piles up and the server eventually stops delivering <message> stanzas.
+        // We ack first, then fall through to listener.onStanza so consumers can read them.
+        if ("notification".equals(node.tag()) || "receipt".equals(node.tag())) {
+            try { sendAck(node); }
+            catch (Throwable t) { LOG.warn("Failed to ack {}", node.tag(), t); }
+            return false;
         }
 
         if ("message".equals(node.tag())) {
@@ -683,7 +717,14 @@ public final class JaWaClient implements AutoCloseable {
 
     /**
      * Transport-level acknowledgement. Without it the server keeps redelivering the
-     * stanza on every reconnect. Mirrors whatsmeow's {@code Client.sendAck}.
+     * stanza on every reconnect and eventually throttles new deliveries.
+     *
+     * <p>Attrs mirrored from the source stanza: {@code id}, {@code to} (from
+     * source's {@code from}), {@code class} (source's tag), and — when present —
+     * {@code participant}, {@code recipient}. For non-message stanzas, the source's
+     * {@code type} attribute is also preserved on the ack (e.g. {@code
+     * <receipt type="read">} → ack must carry {@code type="read"}, otherwise the
+     * server raises a stream:error and drops the connection).
      */
     private void sendAck(BinaryNode original) {
         String id = original.attr("id");
@@ -697,6 +738,11 @@ public final class JaWaClient implements AutoCloseable {
         if (participant != null) attrs.put("participant", participant);
         String recipient = original.attr("recipient");
         if (recipient != null) attrs.put("recipient", recipient);
+        // <message> ack never carries type; everything else preserves it.
+        if (!"message".equals(original.tag())) {
+            String type = original.attr("type");
+            if (type != null) attrs.put("type", type);
+        }
         send(new BinaryNode("ack", attrs, null));
     }
 
