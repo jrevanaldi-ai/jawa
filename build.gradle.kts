@@ -123,7 +123,7 @@ publishing {
             pom {
                 name.set("JaWa")
                 description.set("Unofficial WhatsApp Web library for Java 21+, ported from Baileys and whatsmeow.")
-                url.set("https://github.com/jrevanaldi-ai/jawa")
+                url.set("https://github.com/jochris/JaWa")
                 licenses {
                     license {
                         name.set("GNU General Public License v3.0 or later")
@@ -132,14 +132,14 @@ publishing {
                 }
                 developers {
                     developer {
-                        id.set("jrevanaldi-ai")
-                        name.set("jrevanaldi-ai")
+                        id.set("jochris")
+                        name.set("jochris")
                     }
                 }
                 scm {
-                    connection.set("scm:git:https://github.com/jrevanaldi-ai/jawa.git")
-                    developerConnection.set("scm:git:ssh://git@github.com/jrevanaldi-ai/jawa.git")
-                    url.set("https://github.com/jrevanaldi-ai/jawa")
+                    connection.set("scm:git:https://github.com/jochris/JaWa.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/jochris/JaWa.git")
+                    url.set("https://github.com/jochris/JaWa")
                 }
             }
         }
