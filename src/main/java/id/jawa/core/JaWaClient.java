@@ -513,6 +513,53 @@ public final class JaWaClient implements AutoCloseable {
     }
 
     /**
+     * Edit a previously-sent text message. WhatsApp's UI shows the replacement and an
+     * "edited" tag. Subject to ~15-minute server-side edit window.
+     *
+     * @param chatJid       chat where the original was sent
+     * @param targetMsgId   id returned by the original {@link #sendText} /
+     *                      {@link #sendGroupText} call
+     * @param newText       the replacement text
+     * @return future resolving to the edit message's id (a new id, distinct from
+     *         {@code targetMsgId})
+     */
+    public java.util.concurrent.CompletableFuture<String> sendEdit(
+            String chatJid,
+            String targetMsgId,
+            String newText) {
+        id.jawa.proto.Wa.Message inner = MessageEncoder.text(newText);
+        id.jawa.proto.Wa.Message msg = MessageEncoder.edit(
+            chatJid, targetMsgId, inner, System.currentTimeMillis());
+        if (chatJid.endsWith("@g.us")) {
+            return sendGroupMessage(chatJid, msg);
+        }
+        return sendDmMessage(chatJid, msg);
+    }
+
+    /**
+     * Revoke (delete-for-everyone) a message.
+     *
+     * @param chatJid           chat where the original lives
+     * @param targetMsgId       id of the message to revoke
+     * @param targetParticipant for revoking someone else's message in a group (admin
+     *                          action), the sender's device JID; {@code null} when
+     *                          revoking your own
+     * @param fromMe            {@code true} if the target message was sent by us
+     */
+    public java.util.concurrent.CompletableFuture<String> sendRevoke(
+            String chatJid,
+            String targetMsgId,
+            String targetParticipant,
+            boolean fromMe) {
+        id.jawa.proto.Wa.Message msg = MessageEncoder.revoke(
+            chatJid, targetMsgId, targetParticipant, fromMe);
+        if (chatJid.endsWith("@g.us")) {
+            return sendGroupMessage(chatJid, msg);
+        }
+        return sendDmMessage(chatJid, msg);
+    }
+
+    /**
      * Query the server for the list of groups this account participates in. Each entry
      * carries the group JID, subject, creator, timestamps, and the per-member device
      * list (one entry per participant, device-suffixed).

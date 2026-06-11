@@ -61,6 +61,31 @@ public final class Main {
 
             @Override public void onConnected() {
                 System.out.println(">>> Connected");
+                // Optional: edit a previously-sent message (-Djawa.edit_chat / _target_id / _new_text).
+                String editChat = System.getProperty("jawa.edit_chat");
+                if (editChat != null && !editChat.isBlank()) {
+                    String editTargetId = System.getProperty("jawa.edit_target_id", "");
+                    String editNewText = System.getProperty("jawa.edit_new_text", "");
+                    client.sendEdit(editChat, editTargetId, editNewText).whenComplete((msgId, err) -> {
+                        if (err != null) { System.err.println(">>> edit failed: " + err); err.printStackTrace(); return; }
+                        System.out.println(">>> Sent edit id=" + msgId + " target=" + editTargetId
+                            + " new text=\"" + editNewText + "\"");
+                    });
+                    return;
+                }
+                // Optional: revoke / delete-for-everyone (-Djawa.revoke_chat / _target_id / _target_sender / _from_me).
+                String revokeChat = System.getProperty("jawa.revoke_chat");
+                if (revokeChat != null && !revokeChat.isBlank()) {
+                    String revokeTargetId = System.getProperty("jawa.revoke_target_id", "");
+                    String revokeTargetSender = System.getProperty("jawa.revoke_target_sender"); // null OK
+                    boolean revokeFromMe = "1".equals(System.getProperty("jawa.revoke_from_me", "1"));
+                    client.sendRevoke(revokeChat, revokeTargetId, revokeTargetSender, revokeFromMe)
+                        .whenComplete((msgId, err) -> {
+                            if (err != null) { System.err.println(">>> revoke failed: " + err); err.printStackTrace(); return; }
+                            System.out.println(">>> Sent revoke id=" + msgId + " target=" + revokeTargetId);
+                        });
+                    return;
+                }
                 // Optional: send a quoted reply (-Djawa.reply_chat / _text / _to_id / _to_sender / _to_text).
                 String replyChat = System.getProperty("jawa.reply_chat");
                 if (replyChat != null && !replyChat.isBlank()) {

@@ -100,6 +100,73 @@ public final class MessageEncoder {
         return Wa.Message.newBuilder().setExtendedTextMessage(extended).build();
     }
 
+    /**
+     * Build an edit envelope for an existing message. The recipient's UI replaces the
+     * original text with {@code newContent} (subject to ~15-minute edit window).
+     *
+     * <p>Shape: {@code Wa.Message.editedMessage = FutureProofMessage{Wa.Message{
+     * protocolMessage{key{fromMe=true, id=targetMsgId, remoteJid=chatJid},
+     * type=MESSAGE_EDIT, editedMessage=newContent, timestampMs=now}}}}.
+     *
+     * @param chatJid       chat where the original lives
+     * @param targetMsgId   id of the message to edit
+     * @param newContent    the replacement {@code Wa.Message} (typically a text built
+     *                      with {@link #text})
+     * @param timestampMs   server-clock-ish timestamp of the edit (ms since epoch)
+     */
+    public static Wa.Message edit(String chatJid,
+                                  String targetMsgId,
+                                  Wa.Message newContent,
+                                  long timestampMs) {
+        Wa.MessageKey key = Wa.MessageKey.newBuilder()
+            .setFromMe(true)
+            .setId(targetMsgId)
+            .setRemoteJid(chatJid)
+            .build();
+        Wa.Message.ProtocolMessage protocol = Wa.Message.ProtocolMessage.newBuilder()
+            .setKey(key)
+            .setType(Wa.Message.ProtocolMessage.Type.MESSAGE_EDIT)
+            .setEditedMessage(newContent)
+            .setTimestampMs(timestampMs)
+            .build();
+        Wa.Message inner = Wa.Message.newBuilder().setProtocolMessage(protocol).build();
+        Wa.Message.FutureProofMessage wrap = Wa.Message.FutureProofMessage.newBuilder()
+            .setMessage(inner)
+            .build();
+        return Wa.Message.newBuilder().setEditedMessage(wrap).build();
+    }
+
+    /**
+     * Build a "delete for everyone" (revoke) envelope.
+     *
+     * <p>Shape: {@code Wa.Message.protocolMessage{key{fromMe, id, remoteJid,
+     * participant}, type=REVOKE}}.
+     *
+     * @param chatJid           chat where the original lives
+     * @param targetMsgId       id of the message to revoke
+     * @param targetParticipant for group revokes of someone else's message (you are
+     *                          admin), the sender's device JID; {@code null} when
+     *                          revoking your own
+     * @param fromMe            {@code true} if the target was sent by us
+     */
+    public static Wa.Message revoke(String chatJid,
+                                    String targetMsgId,
+                                    String targetParticipant,
+                                    boolean fromMe) {
+        Wa.MessageKey.Builder key = Wa.MessageKey.newBuilder()
+            .setRemoteJid(chatJid)
+            .setFromMe(fromMe)
+            .setId(targetMsgId);
+        if (targetParticipant != null && !targetParticipant.isBlank()) {
+            key.setParticipant(targetParticipant);
+        }
+        Wa.Message.ProtocolMessage protocol = Wa.Message.ProtocolMessage.newBuilder()
+            .setKey(key.build())
+            .setType(Wa.Message.ProtocolMessage.Type.REVOKE)
+            .build();
+        return Wa.Message.newBuilder().setProtocolMessage(protocol).build();
+    }
+
     public static Wa.Message reaction(String chatJid,
                                       String targetMsgId,
                                       String targetParticipant,
