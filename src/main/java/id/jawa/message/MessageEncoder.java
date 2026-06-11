@@ -52,6 +52,40 @@ public final class MessageEncoder {
     }
 
     /**
+     * Build a reaction {@code Wa.Message} pointing at a target message.
+     *
+     * @param chatJid         the chat where the target message lives (group JID
+     *                        or peer's bare JID for DMs)
+     * @param targetMsgId     the original message's {@code id} attribute
+     * @param targetParticipant for group reactions, the device JID of the original
+     *                        sender. For DM reactions on a message sent by the peer,
+     *                        leave {@code null}. For DM reactions on our own message
+     *                        also {@code null}.
+     * @param fromMe          {@code true} if the target message was sent by us
+     * @param emoji           the reaction text — typically a single emoji. Pass
+     *                        an empty string to remove an existing reaction.
+     */
+    public static Wa.Message reaction(String chatJid,
+                                      String targetMsgId,
+                                      String targetParticipant,
+                                      boolean fromMe,
+                                      String emoji,
+                                      long timestampMs) {
+        Wa.MessageKey.Builder key = Wa.MessageKey.newBuilder()
+            .setRemoteJid(chatJid)
+            .setFromMe(fromMe)
+            .setId(targetMsgId);
+        if (targetParticipant != null) key.setParticipant(targetParticipant);
+
+        Wa.Message.ReactionMessage reaction = Wa.Message.ReactionMessage.newBuilder()
+            .setKey(key.build())
+            .setText(emoji == null ? "" : emoji)
+            .setSenderTimestampMs(timestampMs)
+            .build();
+        return Wa.Message.newBuilder().setReactionMessage(reaction).build();
+    }
+
+    /**
      * Wrap {@code inner} in a {@code DeviceSentMessage} envelope addressed to
      * {@code destinationJid}. Used when a companion device sends a message that should
      * also appear on the user's other own devices — the phone routes the inner message

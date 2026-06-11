@@ -323,6 +323,16 @@ public final class JaWaClient implements AutoCloseable {
      * reaches the recipient but the sender's own phone shows no record of it.
      */
     public java.util.concurrent.CompletableFuture<String> sendText(String toUser, String text) {
+        return sendDmMessage(toUser, MessageEncoder.text(text));
+    }
+
+    /**
+     * Send any {@link id.jawa.proto.Wa.Message} (text, reaction, etc.) as a DM. Handles
+     * USync device-list query, pre-key bundle fetch, Signal session install, per-device
+     * encrypt + DSM fan-out to own companion devices.
+     */
+    public java.util.concurrent.CompletableFuture<String>
+            sendDmMessage(String toUser, id.jawa.proto.Wa.Message msg) {
         id.jawa.util.Jid myJid = id.jawa.util.Jid.parse(creds.meJid);
         if (myJid == null) {
             return java.util.concurrent.CompletableFuture.failedFuture(
@@ -345,7 +355,6 @@ public final class JaWaClient implements AutoCloseable {
             }
             return fetchBundlesAndInstallSessions(allDeviceJids).thenApply(addresses -> {
                 String msgId = newIqId().toUpperCase();
-                id.jawa.proto.Wa.Message msg = MessageEncoder.text(text);
                 MessageSender.Result result = MessageSender.buildStanza(
                     protocolStore, creds, msgId, toUser, allDeviceJids, msg);
                 send(result.stanza());
@@ -393,6 +402,16 @@ public final class JaWaClient implements AutoCloseable {
      */
     public java.util.concurrent.CompletableFuture<String>
             sendGroupText(String groupJid, String text) {
+        return sendGroupMessage(groupJid, MessageEncoder.text(text));
+    }
+
+    /**
+     * Send any {@link id.jawa.proto.Wa.Message} (text, reaction, etc.) to a group.
+     * Handles participant resolution, USync, pre-key bundle fetch, session install,
+     * and the SKDM-per-participant + single skmsg fan-out.
+     */
+    public java.util.concurrent.CompletableFuture<String>
+            sendGroupMessage(String groupJid, id.jawa.proto.Wa.Message msg) {
         return queryJoinedGroups().thenCompose(groups -> {
             id.jawa.message.GroupListQuery.GroupInfo target = null;
             for (var g : groups) {
@@ -424,7 +443,6 @@ public final class JaWaClient implements AutoCloseable {
                 }
                 return fetchBundlesAndInstallSessions(allDeviceJids).thenApply(addresses -> {
                     String msgId = newIqId().toUpperCase();
-                    id.jawa.proto.Wa.Message msg = MessageEncoder.text(text);
                     id.jawa.message.GroupSender.Result result =
                         id.jawa.message.GroupSender.buildStanza(
                             protocolStore, senderKeyStore, creds, msgId,
@@ -436,6 +454,36 @@ public final class JaWaClient implements AutoCloseable {
                 });
             });
         });
+    }
+
+    /**
+     * Send a reaction to an existing message. Routes to {@link #sendDmMessage} for DM
+     * targets and {@link #sendGroupMessage} for group targets, based on {@code chatJid}
+     * suffix.
+     *
+     * @param chatJid           where the original message lives — group JID
+     *                          ({@code ...@g.us}) for group reactions, or the peer's
+     *                          bare JID for DMs
+     * @param targetMsgId       the original message's {@code id} attribute
+     * @param targetParticipant for group reactions, the device JID of the original
+     *                          message's sender; {@code null} for DMs
+     * @param fromMe            {@code true} if the target message was sent by us
+     * @param emoji             the reaction emoji; empty string removes our reaction
+     * @return future resolving to the reaction message's id
+     */
+    public java.util.concurrent.CompletableFuture<String> sendReaction(
+            String chatJid,
+            String targetMsgId,
+            String targetParticipant,
+            boolean fromMe,
+            String emoji) {
+        long ts = System.currentTimeMillis();
+        id.jawa.proto.Wa.Message msg = MessageEncoder.reaction(
+            chatJid, targetMsgId, targetParticipant, fromMe, emoji, ts);
+        if (chatJid.endsWith("@g.us")) {
+            return sendGroupMessage(chatJid, msg);
+        }
+        return sendDmMessage(chatJid, msg);
     }
 
     /**

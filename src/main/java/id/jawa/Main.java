@@ -61,6 +61,21 @@ public final class Main {
 
             @Override public void onConnected() {
                 System.out.println(">>> Connected");
+                // Optional: send a reaction (-Djawa.reaction_chat / _target_id / _target_sender / _emoji).
+                String reactChat = System.getProperty("jawa.reaction_chat");
+                if (reactChat != null && !reactChat.isBlank()) {
+                    String reactTargetId = System.getProperty("jawa.reaction_target_id", "");
+                    String reactTargetSender = System.getProperty("jawa.reaction_target_sender"); // null OK for DMs
+                    boolean reactFromMe = "1".equals(System.getProperty("jawa.reaction_from_me", "0"));
+                    String emoji = System.getProperty("jawa.reaction_emoji", "🔥");
+                    client.sendReaction(reactChat, reactTargetId, reactTargetSender, reactFromMe, emoji)
+                        .whenComplete((msgId, err) -> {
+                            if (err != null) { System.err.println(">>> reaction failed: " + err); err.printStackTrace(); return; }
+                            System.out.println(">>> Sent reaction id=" + msgId + " emoji=" + emoji
+                                + " on target id=" + reactTargetId + " in chat=" + reactChat);
+                        });
+                    return; // skip default DM send below
+                }
                 // Optional: send to a specific group (-Djawa.target_group=<full-jid>).
                 String targetGroup = System.getProperty("jawa.target_group");
                 if (targetGroup != null && !targetGroup.isBlank()) {
