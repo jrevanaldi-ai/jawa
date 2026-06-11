@@ -24,11 +24,21 @@ public final class Main {
         Path sessionFile = Path.of(System.getProperty("jawa.session",
             args.length > 0 ? args[0] : "sessions/default.session"));
 
+        // Derive a per-session Signal-state dir alongside the session file by stripping
+        // the .session suffix and appending .signal. Override with -Djawa.signal_dir=...
+        String suffix = ".session";
+        String basePath = sessionFile.toString();
+        String derivedSignalDir = basePath.endsWith(suffix)
+            ? basePath.substring(0, basePath.length() - suffix.length()) + ".signal"
+            : basePath + ".signal";
+        Path signalDir = Path.of(System.getProperty("jawa.signal_dir", derivedSignalDir));
+
         System.out.println("== JaWa " + JaWa.VERSION + " ==");
         System.out.println("Session file: " + sessionFile.toAbsolutePath());
+        System.out.println("Signal dir  : " + signalDir.toAbsolutePath());
 
         FileAuthStore store = new FileAuthStore(sessionFile);
-        JaWaClient client = new JaWaClient(store);
+        JaWaClient client = new JaWaClient(store, signalDir);
 
         client.listener(new JaWaClient.Listener() {
             @Override public void onPaired(String jid, String pushName, String platform) {

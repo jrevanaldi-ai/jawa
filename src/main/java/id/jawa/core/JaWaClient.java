@@ -72,6 +72,8 @@ public final class JaWaClient implements AutoCloseable {
     private final AuthStore store;
     private final SignalKeyStore signalStore = new InMemorySignalKeyStore();
     private final id.jawa.signal.InMemorySenderKeyStore senderKeyStore = new id.jawa.signal.InMemorySenderKeyStore();
+    private final java.nio.file.Path signalDir; // null = sessions in-memory
+    private id.jawa.signal.FileSessionStorage sessionStorage; // built once when connecting if signalDir is set
     private JaWaProtocolStore protocolStore;  // initialised in connect() once creds are loaded
     private PairingCodeHandler pairCodeHandler; // populated on demand for pair-code flow
     private java.util.concurrent.ScheduledExecutorService keepalive;
@@ -88,7 +90,22 @@ public final class JaWaClient implements AutoCloseable {
     private final java.util.concurrent.CountDownLatch closeLatch = new java.util.concurrent.CountDownLatch(1);
     private static final int PRE_KEY_UPLOAD_COUNT = 30;
 
-    public JaWaClient(AuthStore store) { this.store = store; }
+    public JaWaClient(AuthStore store) {
+        this(store, null);
+    }
+
+    /**
+     * @param store     the auth store backing {@link AuthCreds} persistence
+     * @param signalDir optional directory for persistent Signal session state. When
+     *                  {@code null}, sessions live only in memory (lost on restart);
+     *                  when set, the file-backed store under this directory survives
+     *                  reconnects, eliminating retry-receipt churn for previously-paired
+     *                  peers.
+     */
+    public JaWaClient(AuthStore store, java.nio.file.Path signalDir) {
+        this.store = store;
+        this.signalDir = signalDir;
+    }
 
     public JaWaClient listener(Listener l) { this.listener = l != null ? l : new Listener() {}; return this; }
 
@@ -151,7 +168,10 @@ public final class JaWaClient implements AutoCloseable {
         frame.send(clientFinish.toByteArray());
 
         transport = noise.finish();
-        protocolStore = new JaWaProtocolStore(creds);
+        if (signalDir != null && sessionStorage == null) {
+            sessionStorage = new id.jawa.signal.FileSessionStorage(signalDir);
+        }
+        protocolStore = new JaWaProtocolStore(creds, sessionStorage);
         LOG.info("Noise handshake complete — steady state {}", isPairing ? "(pairing)" : "(login)");
 
         // ---- Start reader loop ----
