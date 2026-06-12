@@ -88,6 +88,23 @@ public final class Main {
                             client.sendCtaButtons(demoChat, "Mixed CTA demo 🚀", "JaWa v0.0.3", mix)
                                 .whenComplete((id, err) -> System.out.println(err != null ? ">>> err " + err : ">>> Sent mixed_cta id=" + id));
                         }
+                        case "single_select" -> {
+                            java.util.List<id.jawa.message.MessageEncoder.ListSection> sections = java.util.List.of(
+                                new id.jawa.message.MessageEncoder.ListSection("Commands", java.util.List.of(
+                                    new id.jawa.message.MessageEncoder.ListRow("ping", "Ping bot", "Cek bot hidup"),
+                                    new id.jawa.message.MessageEncoder.ListRow("info", "Server info", "Show server status")
+                                )),
+                                new id.jawa.message.MessageEncoder.ListSection("Owner", java.util.List.of(
+                                    new id.jawa.message.MessageEncoder.ListRow("exec", "Exec shell", "Owner-only")
+                                ))
+                            );
+                            mix = java.util.List.of(
+                                id.jawa.message.MessageEncoder.CtaButton.singleSelect("📋 Pick command", sections),
+                                id.jawa.message.MessageEncoder.CtaButton.url("📚 Docs", "https://github.com/jochris/JaWa#readme")
+                            );
+                            client.sendCtaButtons(demoChat, "Single-select + URL demo", "JaWa", mix)
+                                .whenComplete((id, err) -> System.out.println(err != null ? ">>> err " + err : ">>> Sent single_select id=" + id));
+                        }
                         case "quick_reply" -> {
                             mix = java.util.List.of(
                                 id.jawa.message.MessageEncoder.CtaButton.quickReply("✅ Confirm", "qr_yes"),

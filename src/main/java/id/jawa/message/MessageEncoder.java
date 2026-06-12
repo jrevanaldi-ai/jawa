@@ -134,6 +134,33 @@ public final class MessageEncoder {
                 "{\"display_text\":\"" + escape(displayText)
               + "\",\"id\":\"" + escape(id) + "\"}");
         }
+
+        /**
+         * Single-select button — taps open a sheet listing the given sections / rows.
+         * Same UX as a ListMessage but rides inside the broader InteractiveMessage so
+         * it can be mixed with URL / copy / call buttons in the same bubble.
+         */
+        public static CtaButton singleSelect(String displayText, java.util.List<ListSection> sections) {
+            StringBuilder b = new StringBuilder("{\"title\":\"").append(escape(displayText));
+            b.append("\",\"sections\":[");
+            for (int i = 0; i < sections.size(); i++) {
+                if (i > 0) b.append(",");
+                ListSection s = sections.get(i);
+                b.append("{\"title\":\"").append(escape(s.title() == null ? "" : s.title()));
+                b.append("\",\"rows\":[");
+                for (int j = 0; j < s.rows().size(); j++) {
+                    if (j > 0) b.append(",");
+                    ListRow r = s.rows().get(j);
+                    b.append("{\"id\":\"").append(escape(r.rowId() == null ? "" : r.rowId()));
+                    b.append("\",\"title\":\"").append(escape(r.title() == null ? "" : r.title()));
+                    b.append("\",\"description\":\"").append(escape(r.description() == null ? "" : r.description()));
+                    b.append("\"}");
+                }
+                b.append("]}");
+            }
+            b.append("]}");
+            return new CtaButton("single_select", b.toString());
+        }
     }
 
     /**

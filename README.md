@@ -486,6 +486,8 @@ needs the `<biz>` companion stanza (JaWa adds it automatically).
 
 ```java
 import id.jawa.message.MessageEncoder.CtaButton;
+import id.jawa.message.MessageEncoder.ListSection;
+import id.jawa.message.MessageEncoder.ListRow;
 
 client.sendCtaButtons(
     "628xxx@s.whatsapp.net",
@@ -495,16 +497,27 @@ client.sendCtaButtons(
         CtaButton.url("🌐 Open repo", "https://github.com/jochris/JaWa"),
         CtaButton.copy("📋 Copy code", "JAWA-2026"),
         CtaButton.call("📞 Call WA", "+62895416602000"),
-        CtaButton.quickReply("✨ Hello", "qr_hello")    // fires inbound text "qr_hello"
+        CtaButton.quickReply("✨ Hello", "qr_hello"),    // fires inbound text "qr_hello"
+        CtaButton.singleSelect("📋 Pick command", List.of(
+            new ListSection("Commands", List.of(
+                new ListRow("ping", "Ping bot", "Cek bot hidup"),
+                new ListRow("info", "Server info", "Show server status")
+            )),
+            new ListSection("Owner", List.of(
+                new ListRow("exec", "Exec shell", "Owner-only")
+            ))
+        ))
     )
 ).join();
 ```
 
 > [!NOTE]
 > `cta_url` opens the URL in the user's browser, `cta_copy` copies a code to
-> clipboard, `cta_call` dials the number, and `quick_reply` fires an inbound
-> text whose body is the `id` you set. All four are confirmed working on regular
-> (non-business) accounts as of June 2026.
+> clipboard, `cta_call` dials the number, `quick_reply` fires an inbound text
+> whose body is the `id` you set, and `single_select` opens a sheet listing the
+> sections / rows you pass (acts like a mini ListMessage that can be mixed with
+> other CTA buttons in the same bubble). All five are confirmed working on
+> regular (non-business) accounts as of June 2026.
 
 ### Quick-Reply Buttons
 
@@ -977,7 +990,7 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M11.E.A** — `sendListMessage` (dropdown of selectable rows, multi-section); receiver renders proper list sheet
   - [x] **M11.E.B** — `sendButtonsMessage` (quick-reply buttons, max 3); receiver renders proper button bubbles
   - [x] **M11.E.biz** — append `<biz>` stanza node alongside `<message>` when payload is buttons/list/interactive/template — without this the receiver app silently drops the interactive surface
-  - [x] **M11.E.C** — CTA buttons via `interactiveMessage.nativeFlowMessage`: `CtaButton.url`, `.copy`, `.call`, `.quickReply` — confirmed rendering on regular accounts
+  - [x] **M11.E.C** — CTA buttons via `interactiveMessage.nativeFlowMessage`: `CtaButton.url`, `.copy`, `.call`, `.quickReply`, `.singleSelect` — confirmed rendering on regular accounts
   - [ ] **M11.E.G** — carousel (`interactiveMessage.carouselMessage`): low-level API `sendCarousel` lands but each card needs an `imageMessage`/`videoMessage` header, which depends on the M8 media pipeline being wired into card construction
 - [x] **M12** — Pluggable storage backends (in-memory, file, SQLite)
   - [x] **M12.A** — file-backed libsignal `SessionStore` (sessions survive restart, no `NoSessionException`/retry-receipt churn for previously-paired peers)
