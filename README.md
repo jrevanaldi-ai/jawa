@@ -310,13 +310,34 @@ public interface Listener {
     /** A <message> stanza was successfully decrypted. */
     default void onMessage(MessageReceiver.Decoded decoded) {}
 
+    /** Inbound <receipt> already parsed (delivery / read / played / retry / sender). */
+    default void onReceipt(Receipt receipt) {}
+
     /** Inbound stanza after handshake/pairing (everything not handled internally). */
     default void onStanza(BinaryNode node) {}
+
+    /**
+     * Server tore the session down. {@code permanent=true} means re-pair is required
+     * (REVOKED / BANNED / VERSION_OBSOLETE / REPLACED); auto-reconnect is suppressed.
+     * {@code permanent=false} means transient — auto-reconnect (if enabled) will retry.
+     */
+    default void onTerminated(TerminationReason reason, String detail, boolean permanent) {}
 
     /** Fatal client error. */
     default void onError(Throwable t) {}
 }
 ```
+
+`TerminationReason` values:
+
+| Value | Trigger | Action |
+|---|---|---|
+| `REVOKED` | `<failure reason="401">` (user unlinked device) | re-pair |
+| `BANNED` | `<failure reason="403">` / `co_block` | account-level — appeal to WA |
+| `VERSION_OBSOLETE` | `<failure reason="405">` | bump `WaConstants.WA_VERSION` |
+| `REPLACED` | `<stream:error><conflict type="replaced"/>` | another session took over; restart only one |
+| `TRANSIENT` | 5xx or generic stream:error | auto-reconnect retries automatically |
+| `UNKNOWN` | unrecognized reason | treated as permanent (safe default) |
 
 > [!CAUTION]
 > **All listener callbacks fire on JaWa's reader thread.** Long work in any callback
@@ -1133,8 +1154,9 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M8.E** — `videoMessage` / `audioMessage` / `documentMessage` proto builders + `sendVideo` / `sendAudio` / `sendDocument` APIs (all reuse the M8.A-D crypto + upload)
   - [x] **M8.F** — receive-side `MediaDownloader` (URL or directPath via mediaConn host fan-out, envelope SHA-256 check, MAC verify, AES-CBC decrypt) + `JaWaClient.downloadMedia` async API
 - [ ] **M9** — App-state sync (LT-Hash, mutations, contact list, chat sync)
-- [ ] **M10** — Reconnect, error handling, ban detection
+- [x] **M10** — Reconnect, error handling, ban detection
   - [x] **M10.A** — auto-reconnect on unexpected WS close with exponential back-off (2s → 60s cap); `<failure>` stanzas (e.g. `reason=401`) flag the session terminal so a revoked device doesn't loop forever. `client.autoReconnect(false)` opts out.
+  - [x] **M10.B** — categorised `Listener.onTerminated(TerminationReason, detail, permanent)`: `REVOKED` (401), `BANNED` (403/co_block), `VERSION_OBSOLETE` (405), `REPLACED` (`<stream:error><conflict type="replaced"/>`), `TRANSIENT` (5xx, generic stream:error), `UNKNOWN`. Permanent reasons suppress auto-reconnect; transient ones let the back-off ladder keep trying.
 - [ ] **M11** — Misc message types (reactions, edits, polls, replies, lists)
   - [x] **M11.A** — send reaction to a message (DM + group)
   - [x] **M11.B** — send quoted reply (DM + group)

@@ -49,6 +49,22 @@ public final class JaWaClient implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(JaWaClient.class);
 
+    /** Categorised reason the server tore the session down. */
+    public enum TerminationReason {
+        /** {@code <failure reason="401">} — device record revoked; user unlinked us. */
+        REVOKED,
+        /** Account suspended / banned by WhatsApp. */
+        BANNED,
+        /** Another session for the same device took over ({@code <stream:error><conflict type="replaced"/>}). */
+        REPLACED,
+        /** Client version too old (`<failure reason="405">`); bump {@link WaConstants#WA_VERSION}. */
+        VERSION_OBSOLETE,
+        /** Transient server-side or network hiccup; auto-reconnect should keep trying. */
+        TRANSIENT,
+        /** Server sent a stream error code we don't have a specific bucket for yet. */
+        UNKNOWN
+    }
+
     public interface Listener {
         /** Server sent QR refs. Each string is {@code ref,noisePub,identityPub,advSecret} — render as a QR. */
         default void onQr(List<String> qrStrings) {}
@@ -69,6 +85,18 @@ public final class JaWaClient implements AutoCloseable {
          * lifecycle should override this instead of pattern-matching the raw stanza.
          */
         default void onReceipt(id.jawa.message.Receipt receipt) {}
+
+        /**
+         * Server has signalled the session can no longer continue (revoked device,
+         * banned account, version obsolete, etc.). Fires once before the underlying
+         * connection is torn down; consumers should clean up any per-session state.
+         *
+         * <p>{@code permanent} differentiates "device record gone, re-pair required"
+         * (true) from "transient kick, auto-reconnect will retry" (false). When
+         * {@code permanent} is true, auto-reconnect is suppressed regardless of the
+         * {@link #autoReconnect} flag.
+         */
+        default void onTerminated(TerminationReason reason, String detail, boolean permanent) {}
 
         /** Inbound stanza after handshake/pairing. */
         default void onStanza(BinaryNode node) {}
@@ -319,6 +347,47 @@ public final class JaWaClient implements AutoCloseable {
      * call {@link #connect()} again. Same creds, same listener, same persistent Signal
      * state — peers shouldn't notice the gap.
      */
+    private void handleFailure(BinaryNode node) {
+        String reason = node.attr("reason", "");
+        String location = node.attr("location", "");
+        TerminationReason cat;
+        boolean permanent;
+        switch (reason) {
+            case "401" -> { cat = TerminationReason.REVOKED;          permanent = true;  }
+            case "405" -> { cat = TerminationReason.VERSION_OBSOLETE; permanent = true;  }
+            case "403", "co_block", "banned" -> {
+                                cat = TerminationReason.BANNED;        permanent = true;  }
+            case "500", "503", "504" -> {
+                                cat = TerminationReason.TRANSIENT;     permanent = false; }
+            default     -> { cat = TerminationReason.UNKNOWN;          permanent = true;  }
+        }
+        LOG.warn("Server <failure> reason={} location={} -> {} (permanent={})",
+            reason, location, cat, permanent);
+        if (permanent) terminated.set(true);
+        String detail = "reason=" + reason + (location.isEmpty() ? "" : " location=" + location);
+        try { listener.onTerminated(cat, detail, permanent); }
+        catch (Throwable t) { LOG.warn("listener.onTerminated threw", t); }
+        try { listener.onError(new IllegalStateException("server rejected session: " + detail)); }
+        catch (Throwable t) { LOG.warn("listener.onError threw", t); }
+    }
+
+    private void handleStreamError(BinaryNode node) {
+        BinaryNode conflict = node.child("conflict");
+        if (conflict != null) {
+            String type = conflict.attr("type", "");
+            LOG.warn("Stream error: conflict type={} — another session for this device is active", type);
+            // <conflict type=replaced/> means another session took over. Don't auto-reconnect
+            // immediately; the user/operator may have started a second JaWa intentionally.
+            terminated.set(true);
+            try { listener.onTerminated(TerminationReason.REPLACED, "conflict type=" + type, true); }
+            catch (Throwable t) { LOG.warn("listener.onTerminated threw", t); }
+            return;
+        }
+        LOG.warn("Stream error: {} (treating as transient)", node);
+        try { listener.onTerminated(TerminationReason.TRANSIENT, "stream:error " + node, false); }
+        catch (Throwable t) { LOG.warn("listener.onTerminated threw", t); }
+    }
+
     private void doAutoReconnect() {
         int attempt = reconnectAttempts.incrementAndGet();
         long sleepMs = RECONNECT_BACKOFF_MS[Math.min(attempt - 1, RECONNECT_BACKOFF_MS.length - 1)];
@@ -1276,7 +1345,7 @@ public final class JaWaClient implements AutoCloseable {
                 // Documented post-pair signal — server wants us to reconnect with login creds.
                 LOG.info("Server requested restart (code=515) — expected after pairing; reconnect to enter steady state");
             } else {
-                LOG.warn("Stream error: {}", node);
+                handleStreamError(node);
             }
             return true;
         }
@@ -1297,13 +1366,7 @@ public final class JaWaClient implements AutoCloseable {
             return true;
         }
         if ("failure".equals(node.tag())) {
-            String reason = node.attr("reason");
-            String location = node.attr("location");
-            LOG.warn("Server <failure> reason={} location={} — treating as terminal", reason, location);
-            terminated.set(true);
-            try { listener.onError(new IllegalStateException(
-                "server rejected session: reason=" + reason + " location=" + location)); }
-            catch (Throwable t) { LOG.warn("listener.onError threw", t); }
+            handleFailure(node);
             return true;
         }
         // Pair-code: primary device echoed back its ephemeral via a server-pushed notification
