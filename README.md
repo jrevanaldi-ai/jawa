@@ -129,6 +129,9 @@ the application JVM. Useful demo knobs: `jawa.session`, `jawa.phone`, `jawa.targ
     - [Reply / Quote](#reply--quote)
     - [Edit Message](#edit-message)
     - [Revoke (Delete for Everyone)](#revoke-delete-for-everyone)
+- [Media](#media)
+    - [Send Image](#send-image)
+    - [Low-level Media APIs](#low-level-media-apis)
 - [Receiving Messages](#receiving-messages)
 - [WhatsApp IDs / JIDs Explained](#whatsapp-ids--jids-explained)
 - [User & Device Queries](#user--device-queries)
@@ -484,6 +487,65 @@ client.sendRevoke(
 ).join();
 ```
 
+## Media
+
+WhatsApp media (images, videos, audio, documents) is end-to-end encrypted with a
+per-message random 32-byte `mediaKey`. JaWa handles the crypto, the
+{@code media_conn} auth refresh, and the HTTPS upload; the {@code mediaKey} rides
+inside the Signal-encrypted `Wa.Message` envelope so only the recipient device can
+derive the AES-CBC + HMAC keys.
+
+### Send Image
+
+```java
+byte[] jpeg = Files.readAllBytes(Path.of("photo.jpg"));
+String msgId = client.sendImage(
+    "120363...@g.us",            // chat (DM bare JID or group @g.us)
+    jpeg,
+    "image/jpeg",
+    "look at this 📸"            // caption — nullable
+).join();
+```
+
+Under the hood:
+1. Generate a fresh random 32-byte `mediaKey`.
+2. `MediaCrypto.encrypt` — HKDF-expand the key into iv/cipherKey/macKey,
+   AES-CBC encrypt the bytes, append a 10-byte truncated HMAC.
+3. `refreshMediaConn` — `<iq xmlns="w:m" type="set"><media_conn/></iq>` to get
+   the auth token + host list (cached until TTL expires).
+4. `MediaUploader.upload` — HTTPS POST `<ciphertext>||<mac10>` to
+   `https://<host>/mms/image/<token>?auth=...&token=...`.
+5. Build `Wa.Message{imageMessage{url, directPath, mediaKey, fileSha256,
+   fileEncSha256, fileLength, mimetype, caption}}`.
+6. Route through `sendDmMessage` / `sendGroupMessage` — Signal-encrypted per
+   recipient device, same pipeline as text.
+
+### Low-level Media APIs
+
+For experimentation or sending media types that don't have a named helper yet
+(video / audio / document — they share the same crypto + upload, only the
+`MediaType` info string and the Wa.Message field differ):
+
+```java
+import id.jawa.media.MediaCrypto;
+import id.jawa.media.MediaUploader;
+
+byte[] mediaKey = id.jawa.util.Bytes.random(32);
+var enc = MediaCrypto.encrypt(rawBytes, mediaKey, MediaCrypto.MediaType.VIDEO);
+
+var mediaConn = client.refreshMediaConn().join();
+var upload = MediaUploader.upload(mediaConn, enc, MediaCrypto.MediaType.VIDEO);
+
+// Build your own Wa.Message.VideoMessage with upload.url() + upload.directPath(),
+// mediaKey, enc.fileSha256(), enc.fileEncSha256(), etc., then:
+client.sendGroupMessage(groupJid, customWaMessage).join();
+```
+
+> [!NOTE]
+> Receive-side download/decrypt isn't wired yet. The crypto helper
+> `MediaCrypto.decrypt(downloadedBytes, mediaKey, type)` is already available; a
+> `MediaDownloader` that handles host selection + HTTPS GET + retry is open work.
+
 ## Receiving Messages
 
 Implement `Listener.onMessage(MessageReceiver.Decoded)`:
@@ -649,6 +711,12 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M7.G1** — query joined groups via `<iq xmlns="w:g2"><participating/></iq>`
   - [x] **M7.G2** — send text message to a group (per-device SKDM fan-out + single `<enc type=skmsg>`)
 - [ ] **M8** — Media upload/download (HKDF-AES-CBC + HMAC, mediaConn)
+  - [x] **M8.A** — media crypto primitives (AES-CBC + HKDF expand → iv/cipherKey/macKey + truncated HMAC, plus type-isolated info strings)
+  - [x] **M8.B** — `<iq xmlns="w:m"><media_conn/></iq>` query + TTL-cached `MediaConn` record
+  - [x] **M8.C** — HTTPS upload to `https://<host>/mms/<type>/<token>` via JDK HttpClient
+  - [x] **M8.D** — `imageMessage` proto + `sendImage(chatJid, bytes, mimetype, caption)` API (DM + group)
+  - [ ] **M8.E** — video / audio / document send helpers (reuses M8.A-D crypto + upload)
+  - [ ] **M8.F** — receive-side `MediaDownloader` (HTTPS GET + retry + `MediaCrypto.decrypt`)
 - [ ] **M9** — App-state sync (LT-Hash, mutations, contact list, chat sync)
 - [ ] **M10** — Reconnect, error handling, ban detection
 - [ ] **M11** — Misc message types (reactions, edits, polls, replies, lists)
