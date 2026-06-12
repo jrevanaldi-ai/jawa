@@ -446,6 +446,23 @@ public final class JaWaClient implements AutoCloseable {
     }
 
     /**
+     * Send a poll. {@code selectableCount=1} produces a single-select poll;
+     * higher values produce multi-select; {@code 0} = unlimited.
+     *
+     * @param chatJid          DM bare JID or group {@code @g.us}
+     * @param name             the poll question
+     * @param options          1-12 option texts
+     * @param selectableCount  how many options each voter can pick
+     */
+    public java.util.concurrent.CompletableFuture<String> sendPoll(
+            String chatJid, String name, java.util.List<String> options, int selectableCount) {
+        id.jawa.proto.Wa.Message msg = MessageEncoder.pollMessage(name, options, selectableCount);
+        return chatJid.endsWith("@g.us")
+            ? sendGroupMessage(chatJid, msg)
+            : sendDmMessage(chatJid, msg);
+    }
+
+    /**
      * Send any {@link id.jawa.proto.Wa.Message} (text, reaction, etc.) as a DM. Handles
      * USync device-list query, pre-key bundle fetch, Signal session install, per-device
      * encrypt + DSM fan-out to own companion devices.

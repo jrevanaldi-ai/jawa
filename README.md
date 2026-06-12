@@ -126,6 +126,7 @@ the application JVM. Useful demo knobs: `jawa.session`, `jawa.phone`, `jawa.targ
     - [Send Arbitrary `Wa.Message`](#send-arbitrary-wamessage)
 - [Modify Messages](#modify-messages)
     - [Reaction](#reaction)
+    - [Poll](#poll)
     - [Mentions](#mentions)
     - [Reply / Quote](#reply--quote)
     - [Edit Message](#edit-message)
@@ -450,6 +451,27 @@ String reactionId = client.sendReaction(
     "🔥"                                     // emoji (empty string removes)
 ).join();
 ```
+
+### Poll
+
+Native poll bubble with single-select or multi-select voting. Voters' choices
+are end-to-end encrypted with a per-poll random 32-byte key (`messageSecret`
+on `messageContextInfo`) — even the server can't read individual votes.
+
+```java
+client.sendPoll(
+    "120363...@g.us",
+    "Test poll dari JaWa 🚀",                       // question
+    List.of("Yes ✅", "No ❌", "Maybe 🤔"),          // 1-12 options
+    /* selectableCount = */ 1                       // 1 = single-select, >1 = multi, 0 = unlimited
+).join();
+```
+
+> [!NOTE]
+> {@code selectableCount=1} produces a single-select poll
+> ({@code pollCreationMessageV3}); higher values produce multi-select
+> ({@code pollCreationMessage} V1). Receiver app renders proper radio /
+> checkbox UI accordingly.
 
 ### Mentions
 
@@ -1015,6 +1037,7 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M11.E.biz** — append `<biz>` stanza node alongside `<message>` when payload is buttons/list/interactive/template — without this the receiver app silently drops the interactive surface
   - [x] **M11.E.C** — CTA buttons via `interactiveMessage.nativeFlowMessage`: `CtaButton.url`, `.copy`, `.call`, `.quickReply`, `.singleSelect` — confirmed rendering on regular accounts
   - [x] **M11.F** — `sendTextWithMentions` — tag users via `extendedTextMessage.contextInfo.mentionedJid`; recipient renders each `@<number>` in the body as a tappable handle and pings the mentioned user in groups
+  - [x] **M11.E.D** — `sendPoll` — native poll bubble via `pollCreationMessageV3` (single-select) or `pollCreationMessage` V1 (multi); per-poll random 32-byte vote encryption key ridden in `messageContextInfo.messageSecret`
   - [ ] **M11.E.G** — carousel (`interactiveMessage.carouselMessage`): low-level API `sendCarousel` lands but each card needs an `imageMessage`/`videoMessage` header, which depends on the M8 media pipeline being wired into card construction
 - [x] **M12** — Pluggable storage backends (in-memory, file, SQLite)
   - [x] **M12.A** — file-backed libsignal `SessionStore` (sessions survive restart, no `NoSessionException`/retry-receipt churn for previously-paired peers)

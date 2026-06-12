@@ -52,6 +52,38 @@ public final class MessageEncoder {
     }
 
     /**
+     * Build a poll. Selectable-count {@code 1} produces a single-select poll
+     * ({@code pollCreationMessageV3}); higher values produce multi-select
+     * ({@code pollCreationMessage}). Pass {@code 0} for "no upper bound" semantics
+     * (server treats it as unlimited).
+     *
+     * <p>A fresh random 32-byte {@code messageSecret} (the {@code encKey}) is
+     * generated and ridden in {@code messageContextInfo} — voters use it to
+     * encrypt their own vote selections so even the server can't see them.
+     */
+    public static Wa.Message pollMessage(String name,
+                                         java.util.List<String> options,
+                                         int selectableCount) {
+        Wa.Message.PollCreationMessage.Builder pcm = Wa.Message.PollCreationMessage.newBuilder()
+            .setName(name)
+            .setSelectableOptionsCount(selectableCount);
+        for (String opt : options) {
+            pcm.addOptions(Wa.Message.PollCreationMessage.Option.newBuilder()
+                .setOptionName(opt).build());
+        }
+        Wa.MessageContextInfo mci = Wa.MessageContextInfo.newBuilder()
+            .setMessageSecret(com.google.protobuf.ByteString.copyFrom(id.jawa.util.Bytes.random(32)))
+            .build();
+        Wa.Message.Builder mb = Wa.Message.newBuilder().setMessageContextInfo(mci);
+        if (selectableCount == 1) {
+            mb.setPollCreationMessageV3(pcm.build());
+        } else {
+            mb.setPollCreationMessage(pcm.build());
+        }
+        return mb.build();
+    }
+
+    /**
      * Build a text message that tags one or more users. The receiver's app renders the
      * mention as a tappable handle that opens the mentioned user's profile.
      *

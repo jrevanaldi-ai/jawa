@@ -71,6 +71,21 @@ public final class Main {
 
             @Override public void onConnected() {
                 System.out.println(">>> Connected");
+                // Optional: send a poll (-Djawa.poll_chat / _name / _options (pipe-separated) / _count).
+                String pollChat = System.getProperty("jawa.poll_chat");
+                if (pollChat != null && !pollChat.isBlank()) {
+                    String pollName = System.getProperty("jawa.poll_name", "Pick one");
+                    String optsCsv = System.getProperty("jawa.poll_options", "");
+                    int count = Integer.parseInt(System.getProperty("jawa.poll_count", "1"));
+                    java.util.List<String> opts = new java.util.ArrayList<>();
+                    for (String o : optsCsv.split("\\|")) if (!o.isBlank()) opts.add(o.trim());
+                    client.sendPoll(pollChat, pollName, opts, count)
+                        .whenComplete((id, err) -> {
+                            if (err != null) { System.err.println(">>> poll send failed: " + err); err.printStackTrace(); return; }
+                            System.out.println(">>> Sent poll id=" + id + " (" + opts.size() + " option(s), select=" + count + ")");
+                        });
+                    return;
+                }
                 // Optional: send a text with @-mentions (-Djawa.mention_chat / _text / _jids).
                 // _jids = comma-separated bare JIDs in matching order to @<number> in _text.
                 String mentionChat = System.getProperty("jawa.mention_chat");
