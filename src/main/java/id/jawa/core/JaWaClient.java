@@ -95,6 +95,12 @@ public final class JaWaClient implements AutoCloseable {
     private final AtomicBoolean closing = new AtomicBoolean(false);
     /** Set by the pair-success handler so the reader exits cleanly into a login-mode reconnect. */
     private final AtomicBoolean reconnectAfterPair = new AtomicBoolean(false);
+    /** Set when the server tells us our creds are revoked or otherwise non-recoverable. */
+    private final AtomicBoolean terminated = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicInteger reconnectAttempts =
+        new java.util.concurrent.atomic.AtomicInteger(0);
+    private boolean autoReconnect = true;
+    private static final long[] RECONNECT_BACKOFF_MS = {2_000, 4_000, 8_000, 16_000, 30_000, 60_000};
     /** Counts down exactly once when {@link #close()} fires; lets {@link #join()} block across reconnects. */
     private final java.util.concurrent.CountDownLatch closeLatch = new java.util.concurrent.CountDownLatch(1);
     private static final int PRE_KEY_UPLOAD_COUNT = 30;
@@ -117,6 +123,17 @@ public final class JaWaClient implements AutoCloseable {
     }
 
     public JaWaClient listener(Listener l) { this.listener = l != null ? l : new Listener() {}; return this; }
+
+    /**
+     * Toggle automatic reconnect on unexpected disconnect (default {@code true}).
+     * Disable for short-lived demos / tests where you want the process to exit when
+     * the server closes the socket. Terminal failures (revoked creds, account
+     * banned) never auto-reconnect regardless of this flag.
+     */
+    public JaWaClient autoReconnect(boolean enabled) {
+        this.autoReconnect = enabled;
+        return this;
+    }
 
     /** Open the WebSocket, run the handshake, and start dispatching stanzas. Blocks until handshake completes. */
     public synchronized void connect() throws Exception {
@@ -277,11 +294,46 @@ public final class JaWaClient implements AutoCloseable {
                 }
             }
         } catch (Throwable t) {
-            if (!closing.get() && !reconnectAfterPair.get()) listener.onError(t);
+            if (!closing.get() && !reconnectAfterPair.get() && !terminated.get()) {
+                listener.onError(t);
+            }
         } finally {
             if (reconnectAfterPair.compareAndSet(true, false)) {
                 Thread.ofVirtual().name("jawa-reconnect").start(this::doReconnectPostPair);
+            } else if (!closing.get() && !terminated.get() && autoReconnect && creds != null && creds.account != null) {
+                Thread.ofVirtual().name("jawa-autoreconnect").start(this::doAutoReconnect);
             } else {
+                close();
+            }
+        }
+    }
+
+    /**
+     * Tear down the dead WebSocket, sleep an exponentially-growing back-off, then
+     * call {@link #connect()} again. Same creds, same listener, same persistent Signal
+     * state — peers shouldn't notice the gap.
+     */
+    private void doAutoReconnect() {
+        int attempt = reconnectAttempts.incrementAndGet();
+        long sleepMs = RECONNECT_BACKOFF_MS[Math.min(attempt - 1, RECONNECT_BACKOFF_MS.length - 1)];
+        LOG.info("Auto-reconnect attempt {} in {}ms", attempt, sleepMs);
+        if (frame != null) { try { frame.close(); } catch (Throwable ignored) {} frame = null; }
+        if (keepalive != null) { keepalive.shutdownNow(); keepalive = null; }
+        noise = null;
+        transport = null;
+        pendingIqResults.clear();
+        try { Thread.sleep(sleepMs); }
+        catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
+        if (closing.get() || terminated.get()) return;
+        try {
+            connect();
+            LOG.info("Auto-reconnect succeeded on attempt {}", attempt);
+        } catch (Exception e) {
+            LOG.warn("Auto-reconnect attempt {} failed: {}", attempt, e.toString());
+            if (!closing.get() && !terminated.get() && autoReconnect) {
+                Thread.ofVirtual().name("jawa-autoreconnect").start(this::doAutoReconnect);
+            } else {
+                listener.onError(e);
                 close();
             }
         }
@@ -971,10 +1023,21 @@ public final class JaWaClient implements AutoCloseable {
                 node.attr("jid", creds.meJid),
                 node.attr("lid", creds.meLid),
                 node.attr("platform", creds.platform));
+            reconnectAttempts.set(0); // login worked — backoff resets
             sendActivePassive();
             sendPresenceAvailable();
             listener.onConnected();
             uploadPreKeys();
+            return true;
+        }
+        if ("failure".equals(node.tag())) {
+            String reason = node.attr("reason");
+            String location = node.attr("location");
+            LOG.warn("Server <failure> reason={} location={} — treating as terminal", reason, location);
+            terminated.set(true);
+            try { listener.onError(new IllegalStateException(
+                "server rejected session: reason=" + reason + " location=" + location)); }
+            catch (Throwable t) { LOG.warn("listener.onError threw", t); }
             return true;
         }
         // Pair-code: primary device echoed back its ephemeral via a server-pushed notification

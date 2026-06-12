@@ -829,6 +829,7 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M8.F** — receive-side `MediaDownloader` (URL or directPath via mediaConn host fan-out, envelope SHA-256 check, MAC verify, AES-CBC decrypt) + `JaWaClient.downloadMedia` async API
 - [ ] **M9** — App-state sync (LT-Hash, mutations, contact list, chat sync)
 - [ ] **M10** — Reconnect, error handling, ban detection
+  - [x] **M10.A** — auto-reconnect on unexpected WS close with exponential back-off (2s → 60s cap); `<failure>` stanzas (e.g. `reason=401`) flag the session terminal so a revoked device doesn't loop forever. `client.autoReconnect(false)` opts out.
 - [ ] **M11** — Misc message types (reactions, edits, polls, replies, lists)
   - [x] **M11.A** — send reaction to a message (DM + group)
   - [x] **M11.B** — send quoted reply (DM + group)
