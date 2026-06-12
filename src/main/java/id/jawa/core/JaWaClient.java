@@ -591,6 +591,49 @@ public final class JaWaClient implements AutoCloseable {
      *                          revoking your own
      * @param fromMe            {@code true} if the target message was sent by us
      */
+    /**
+     * Upload + send an image. Pipeline: encrypt {@code imageBytes} with a fresh random
+     * media key, refresh the mediaConn auth, HTTPS POST the ciphertext to the media
+     * server, build a {@code Wa.Message.imageMessage}, and ship it through
+     * {@link #sendDmMessage} / {@link #sendGroupMessage} depending on {@code chatJid}.
+     *
+     * @param chatJid    recipient (DM bare JID or group {@code @g.us})
+     * @param imageBytes the raw image bytes (decoded — JaWa does not transcode)
+     * @param mimetype   IANA mimetype, e.g. {@code "image/jpeg"}
+     * @param caption    optional caption shown under the image; {@code null}/empty for none
+     * @return future resolving to the outbound message id
+     */
+    public java.util.concurrent.CompletableFuture<String> sendImage(
+            String chatJid,
+            byte[] imageBytes,
+            String mimetype,
+            String caption) {
+        byte[] mediaKey = id.jawa.util.Bytes.random(32);
+        id.jawa.media.MediaCrypto.EncryptedMedia enc =
+            id.jawa.media.MediaCrypto.encrypt(imageBytes, mediaKey, id.jawa.media.MediaCrypto.MediaType.IMAGE);
+
+        return refreshMediaConn().thenCompose(mc -> {
+            id.jawa.media.MediaUploader.Result up;
+            try {
+                up = id.jawa.media.MediaUploader.upload(mc, enc, id.jawa.media.MediaCrypto.MediaType.IMAGE);
+            } catch (java.io.IOException | InterruptedException e) {
+                return java.util.concurrent.CompletableFuture.failedFuture(e);
+            }
+            id.jawa.proto.Wa.Message msg = MessageEncoder.imageMessage(
+                up.url(),
+                up.directPath(),
+                mediaKey,
+                enc.fileSha256(),
+                enc.fileEncSha256(),
+                imageBytes.length,
+                mimetype,
+                caption);
+            return chatJid.endsWith("@g.us")
+                ? sendGroupMessage(chatJid, msg)
+                : sendDmMessage(chatJid, msg);
+        });
+    }
+
     public java.util.concurrent.CompletableFuture<String> sendRevoke(
             String chatJid,
             String targetMsgId,
@@ -602,6 +645,40 @@ public final class JaWaClient implements AutoCloseable {
             return sendGroupMessage(chatJid, msg);
         }
         return sendDmMessage(chatJid, msg);
+    }
+
+    private volatile id.jawa.media.MediaConn mediaConnCache;
+    private final Object mediaConnLock = new Object();
+
+    /**
+     * Get a cached {@link id.jawa.media.MediaConn} or fetch a fresh one if expired.
+     * Required for {@code MediaUploader.upload(...)}.
+     */
+    public java.util.concurrent.CompletableFuture<id.jawa.media.MediaConn> refreshMediaConn() {
+        synchronized (mediaConnLock) {
+            id.jawa.media.MediaConn cached = mediaConnCache;
+            if (cached != null && !cached.isExpired(java.time.Instant.now())) {
+                return java.util.concurrent.CompletableFuture.completedFuture(cached);
+            }
+        }
+        String iqId = newIqId();
+        BinaryNode iq = id.jawa.media.MediaConn.buildQuery(iqId);
+        LOG.debug("Sent mediaConn IQ id={}", iqId);
+        return sendIqAsync(iq).thenApply(resp -> {
+            if ("error".equals(resp.attr("type"))) {
+                LOG.warn("mediaConn IQ rejected: {}", resp);
+                throw new IllegalStateException("mediaConn IQ rejected");
+            }
+            id.jawa.media.MediaConn fresh = id.jawa.media.MediaConn.parseResponse(resp);
+            if (fresh == null) {
+                throw new IllegalStateException("malformed mediaConn response: " + resp);
+            }
+            synchronized (mediaConnLock) {
+                mediaConnCache = fresh;
+            }
+            LOG.debug("Got mediaConn: {} host(s), ttl={}s", fresh.hosts().size(), fresh.ttlSeconds());
+            return fresh;
+        });
     }
 
     /**

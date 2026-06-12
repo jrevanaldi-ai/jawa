@@ -52,6 +52,42 @@ public final class MessageEncoder {
     }
 
     /**
+     * Build an {@code imageMessage} pointing at a freshly-uploaded encrypted image.
+     *
+     * @param uploadedUrl    the {@code url} from the media upload response
+     * @param directPath     the {@code direct_path} from the media upload response
+     * @param mediaKey       the 32-byte media key used to encrypt the image (recipient
+     *                       needs this to derive the AES-CBC + HMAC keys)
+     * @param fileSha256     SHA-256 over the plaintext bytes
+     * @param fileEncSha256  SHA-256 over the ciphertext + 10-byte MAC bytes
+     * @param fileLength     plaintext byte length
+     * @param mimetype       e.g. {@code "image/jpeg"}
+     * @param caption        optional caption shown under the image; pass {@code null}
+     *                       or empty for no caption
+     */
+    public static Wa.Message imageMessage(
+            String uploadedUrl,
+            String directPath,
+            byte[] mediaKey,
+            byte[] fileSha256,
+            byte[] fileEncSha256,
+            long fileLength,
+            String mimetype,
+            String caption) {
+        Wa.Message.ImageMessage.Builder b = Wa.Message.ImageMessage.newBuilder()
+            .setUrl(uploadedUrl)
+            .setDirectPath(directPath)
+            .setMediaKey(com.google.protobuf.ByteString.copyFrom(mediaKey))
+            .setFileSha256(com.google.protobuf.ByteString.copyFrom(fileSha256))
+            .setFileEncSha256(com.google.protobuf.ByteString.copyFrom(fileEncSha256))
+            .setFileLength(fileLength)
+            .setMimetype(mimetype)
+            .setMediaKeyTimestamp(System.currentTimeMillis() / 1000);
+        if (caption != null && !caption.isEmpty()) b.setCaption(caption);
+        return Wa.Message.newBuilder().setImageMessage(b.build()).build();
+    }
+
+    /**
      * Build a reaction {@code Wa.Message} pointing at a target message.
      *
      * @param chatJid         the chat where the target message lives (group JID

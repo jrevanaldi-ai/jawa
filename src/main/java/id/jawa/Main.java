@@ -71,6 +71,25 @@ public final class Main {
 
             @Override public void onConnected() {
                 System.out.println(">>> Connected");
+                // Optional: send an image (-Djawa.image_chat / _path / _mimetype / _caption).
+                String imageChat = System.getProperty("jawa.image_chat");
+                if (imageChat != null && !imageChat.isBlank()) {
+                    String imagePath = System.getProperty("jawa.image_path", "");
+                    String mimetype = System.getProperty("jawa.image_mimetype", "image/jpeg");
+                    String caption = System.getProperty("jawa.image_caption", "");
+                    try {
+                        byte[] imageBytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(imagePath));
+                        client.sendImage(imageChat, imageBytes, mimetype, caption.isEmpty() ? null : caption)
+                            .whenComplete((msgId, err) -> {
+                                if (err != null) { System.err.println(">>> image send failed: " + err); err.printStackTrace(); return; }
+                                System.out.println(">>> Sent image id=" + msgId
+                                    + " size=" + imageBytes.length + "B path=" + imagePath);
+                            });
+                    } catch (java.io.IOException e) {
+                        System.err.println(">>> failed to read image: " + e);
+                    }
+                    return;
+                }
                 // Optional: edit a previously-sent message (-Djawa.edit_chat / _target_id / _new_text).
                 String editChat = System.getProperty("jawa.edit_chat");
                 if (editChat != null && !editChat.isBlank()) {
