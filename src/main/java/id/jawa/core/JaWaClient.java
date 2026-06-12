@@ -858,6 +858,96 @@ public final class JaWaClient implements AutoCloseable {
     }
 
     /**
+     * Create a new group with the given subject and initial participant list. Do not
+     * include our own JID in {@code participantBareJids} — the server adds us implicitly.
+     *
+     * @return future resolving to the new group's JID on success
+     */
+    public java.util.concurrent.CompletableFuture<String> createGroup(
+            String name, java.util.List<String> participantBareJids) {
+        String iqId = newIqId();
+        String createKey = newIqId().toUpperCase();
+        BinaryNode iq = id.jawa.message.GroupAction.buildCreate(
+            iqId, name, participantBareJids, createKey);
+        return sendIqAsync(iq).thenApply(resp -> {
+            if ("error".equals(resp.attr("type"))) {
+                throw new IllegalStateException("createGroup rejected: " + resp);
+            }
+            BinaryNode group = resp.child("group");
+            if (group == null) throw new IllegalStateException("createGroup response missing <group>: " + resp);
+            String jid = group.attr("id");
+            if (jid != null && !jid.contains("@")) jid = jid + "@" + id.jawa.util.Jid.SERVER_GROUP;
+            return jid;
+        });
+    }
+
+    /** Leave the given group. */
+    public java.util.concurrent.CompletableFuture<Void> leaveGroup(String groupJid) {
+        String iqId = newIqId();
+        BinaryNode iq = id.jawa.message.GroupAction.buildLeave(iqId, groupJid);
+        return sendIqAsync(iq).thenAccept(resp -> {
+            if ("error".equals(resp.attr("type"))) {
+                throw new IllegalStateException("leaveGroup rejected: " + resp);
+            }
+        });
+    }
+
+    /**
+     * Add / remove / promote / demote participants. Requires admin rights on the group
+     * for all four actions.
+     *
+     * @param groupJid             target group {@code @g.us}
+     * @param action               which change to apply
+     * @param participantBareJids  list of bare JIDs to change (no device suffix)
+     */
+    public java.util.concurrent.CompletableFuture<Void> updateGroupParticipants(
+            String groupJid,
+            id.jawa.message.GroupAction.ParticipantChange action,
+            java.util.List<String> participantBareJids) {
+        String iqId = newIqId();
+        BinaryNode iq = id.jawa.message.GroupAction.buildParticipantChange(
+            iqId, groupJid, action, participantBareJids);
+        return sendIqAsync(iq).thenAccept(resp -> {
+            if ("error".equals(resp.attr("type"))) {
+                throw new IllegalStateException(action + " rejected: " + resp);
+            }
+        });
+    }
+
+    /** Set the group subject (name). 25-char limit server-side. */
+    public java.util.concurrent.CompletableFuture<Void> setGroupSubject(String groupJid, String name) {
+        String iqId = newIqId();
+        BinaryNode iq = id.jawa.message.GroupAction.buildSetSubject(iqId, groupJid, name);
+        return sendIqAsync(iq).thenAccept(resp -> {
+            if ("error".equals(resp.attr("type"))) {
+                throw new IllegalStateException("setGroupSubject rejected: " + resp);
+            }
+        });
+    }
+
+    /**
+     * Set or clear the group description (topic).
+     *
+     * @param groupJid    target group
+     * @param body        new description; pass {@code null} or empty to delete
+     * @param previousId  the previous description's id (caller fetches via {@link
+     *                    #queryJoinedGroups} or tracks from a prior set call); pass
+     *                    {@code null} if this is the first description on the group
+     */
+    public java.util.concurrent.CompletableFuture<Void> setGroupDescription(
+            String groupJid, String body, String previousId) {
+        String iqId = newIqId();
+        String newId = newIqId().toUpperCase();
+        BinaryNode iq = id.jawa.message.GroupAction.buildSetDescription(
+            iqId, groupJid, body, previousId, newId);
+        return sendIqAsync(iq).thenAccept(resp -> {
+            if ("error".equals(resp.attr("type"))) {
+                throw new IllegalStateException("setGroupDescription rejected: " + resp);
+            }
+        });
+    }
+
+    /**
      * Query the server for the list of groups this account participates in. Each entry
      * carries the group JID, subject, creator, timestamps, and the per-member device
      * list (one entry per participant, device-suffixed).

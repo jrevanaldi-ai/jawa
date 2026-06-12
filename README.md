@@ -146,6 +146,11 @@ the application JVM. Useful demo knobs: `jawa.session`, `jawa.phone`, `jawa.targ
     - [Bootstrap Signal Sessions](#bootstrap-signal-sessions)
 - [Groups](#groups)
     - [List Joined Groups](#list-joined-groups)
+    - [Create Group](#create-group)
+    - [Leave Group](#leave-group)
+    - [Add / Remove / Promote / Demote Participants](#add--remove--promote--demote-participants)
+    - [Change Subject](#change-subject)
+    - [Set / Clear Description (Topic)](#set--clear-description-topic)
 - [Low-level APIs](#low-level-apis)
     - [Send Raw Stanza](#send-raw-stanza)
     - [Send IQ with Response](#send-iq-with-response)
@@ -742,10 +747,56 @@ client.queryJoinedGroups().thenAccept(groups -> {
 });
 ```
 
-> [!NOTE]
-> Group create / add-remove / promote-demote / subject change are **not yet
-> implemented**. Group send + receive + list works; lifecycle ops land in a future
-> milestone.
+### Create Group
+
+```java
+String newGroupJid = client.createGroup(
+    "My Cool Group",
+    List.of("628aaa@s.whatsapp.net", "628bbb@s.whatsapp.net")
+).join();
+```
+
+Don't include your own JID in the participants — the server adds it implicitly.
+Subject limit is 25 characters server-side; longer will reject with `406 not acceptable`.
+
+### Leave Group
+
+```java
+client.leaveGroup("120363...@g.us").join();
+```
+
+### Add / Remove / Promote / Demote Participants
+
+All four actions go through the same API; pass the right `ParticipantChange` enum.
+Requires admin rights on the target group.
+
+```java
+import id.jawa.message.GroupAction.ParticipantChange;
+
+client.updateGroupParticipants(groupJid, ParticipantChange.ADD,     List.of("628xxx@s.whatsapp.net")).join();
+client.updateGroupParticipants(groupJid, ParticipantChange.REMOVE,  List.of("628yyy@s.whatsapp.net")).join();
+client.updateGroupParticipants(groupJid, ParticipantChange.PROMOTE, List.of("628zzz@s.whatsapp.net")).join();
+client.updateGroupParticipants(groupJid, ParticipantChange.DEMOTE,  List.of("628zzz@s.whatsapp.net")).join();
+```
+
+### Change Subject
+
+```java
+client.setGroupSubject(groupJid, "New group name").join();
+```
+
+### Set / Clear Description (Topic)
+
+```java
+// set
+client.setGroupDescription(groupJid, "Welcome to the chat", /* previousId = */ null).join();
+
+// clear
+client.setGroupDescription(groupJid, null, /* previousId = */ "<current-topic-id>").join();
+```
+
+`previousId` is the current description's id (you track it from a prior `setGroupDescription`
+call or fetch from group metadata). Pass `null` when there is no prior description.
 
 ## Low-level APIs
 
@@ -815,10 +866,11 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] `<receipt type="retry">` for inbound decrypt failures (M5.E.2)
   - [x] `sendReadReceipt` / `sendPlayedReceipt` / `sendReadReceiptBatch` public APIs
   - [x] `Listener.onReceipt(Receipt)` callback so consumers see peer-side delivery / read / played lifecycle
-- [ ] **M7** — Group messaging (Sender Keys distribution + skmsg)
+- [x] **M7** — Group messaging (Sender Keys distribution + skmsg)
   - [x] **M7 (recv)** — group `skmsg` decrypt + `SenderKeyDistributionMessage` processing on inbound
   - [x] **M7.G1** — query joined groups via `<iq xmlns="w:g2"><participating/></iq>`
   - [x] **M7.G2** — send text message to a group (per-device SKDM fan-out + single `<enc type=skmsg>`)
+  - [x] **M7.G3** — lifecycle ops via `<iq xmlns="w:g2" type="set">`: `createGroup`, `leaveGroup`, `updateGroupParticipants` (add / remove / promote / demote), `setGroupSubject`, `setGroupDescription`
 - [x] **M8** — Media upload/download (HKDF-AES-CBC + HMAC, mediaConn)
   - [x] **M8.A** — media crypto primitives (AES-CBC + HKDF expand → iv/cipherKey/macKey + truncated HMAC, plus type-isolated info strings)
   - [x] **M8.B** — `<iq xmlns="w:m"><media_conn/></iq>` query + TTL-cached `MediaConn` record
