@@ -591,6 +591,49 @@ public final class JaWaClient implements AutoCloseable {
      *                          revoking your own
      * @param fromMe            {@code true} if the target message was sent by us
      */
+    /**
+     * Download + decrypt an inbound media payload referenced by a {@code Wa.Message}
+     * {@code imageMessage} / {@code videoMessage} / {@code audioMessage} /
+     * {@code documentMessage}. Prefer the {@code url} when set; fall back to
+     * {@code directPath} resolved via {@link #refreshMediaConn}.
+     *
+     * @param url            the {@code url} field on the inbound media message; may be empty
+     * @param directPath     the {@code directPath} field; required when {@code url} is empty
+     * @param mediaKey       32-byte media key
+     * @param fileEncSha256  envelope SHA-256 (over ciphertext+MAC); used for integrity check
+     * @param type           which {@code MediaType} the message was encrypted under
+     * @return future resolving to the plaintext bytes
+     */
+    public java.util.concurrent.CompletableFuture<byte[]> downloadMedia(
+            String url,
+            String directPath,
+            byte[] mediaKey,
+            byte[] fileEncSha256,
+            id.jawa.media.MediaCrypto.MediaType type) {
+        if (url != null && !url.isEmpty()) {
+            return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    return id.jawa.media.MediaDownloader.downloadByUrl(url, mediaKey, fileEncSha256, type);
+                } catch (java.io.IOException | InterruptedException e) {
+                    throw new java.util.concurrent.CompletionException(e);
+                }
+            });
+        }
+        if (directPath == null || directPath.isEmpty()) {
+            return java.util.concurrent.CompletableFuture.failedFuture(
+                new IllegalArgumentException("both url and directPath are empty"));
+        }
+        return refreshMediaConn().thenCompose(mc ->
+            java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    return id.jawa.media.MediaDownloader.downloadByDirectPath(
+                        mc, directPath, mediaKey, fileEncSha256, type);
+                } catch (java.io.IOException | InterruptedException e) {
+                    throw new java.util.concurrent.CompletionException(e);
+                }
+            }));
+    }
+
     /** Bundle of (mediaKey, encrypted, upload) for the per-type send helpers below. */
     private record MediaUpload(
         byte[] mediaKey,

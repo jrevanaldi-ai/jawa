@@ -134,6 +134,7 @@ the application JVM. Useful demo knobs: `jawa.session`, `jawa.phone`, `jawa.targ
     - [Send Video](#send-video)
     - [Send Audio / Voice Note](#send-audio--voice-note)
     - [Send Document](#send-document)
+    - [Download Received Media](#download-received-media)
     - [Low-level Media APIs](#low-level-media-apis)
 - [Receiving Messages](#receiving-messages)
 - [WhatsApp IDs / JIDs Explained](#whatsapp-ids--jids-explained)
@@ -585,10 +586,32 @@ var upload = MediaUploader.upload(mediaConn, enc, MediaCrypto.MediaType.VIDEO);
 client.sendGroupMessage(groupJid, customWaMessage).join();
 ```
 
-> [!NOTE]
-> Receive-side download/decrypt isn't wired yet. The crypto helper
-> `MediaCrypto.decrypt(downloadedBytes, mediaKey, type)` is already available; a
-> `MediaDownloader` that handles host selection + HTTPS GET + retry is open work.
+### Download Received Media
+
+`Wa.Message.imageMessage` (and the video / audio / document siblings) carries a
+`url`, `directPath`, `mediaKey`, and `fileEncSha256`. Pass those to
+`downloadMedia` and JaWa handles HTTPS GET, envelope integrity check, MAC
+verification, and AES-CBC decrypt:
+
+```java
+@Override public void onMessage(MessageReceiver.Decoded d) {
+    if (d.message() == null || !d.message().hasImageMessage()) return;
+    var img = d.message().getImageMessage();
+
+    client.downloadMedia(
+        img.getUrl(),                       // prefer this when set
+        img.getDirectPath(),                // fallback via mediaConn host
+        img.getMediaKey().toByteArray(),
+        img.getFileEncSha256().toByteArray(),
+        MediaCrypto.MediaType.IMAGE
+    ).thenAccept(plaintext ->
+        Files.write(Path.of("downloads/" + d.msgId() + ".jpg"), plaintext)
+    );
+}
+```
+
+`downloadByUrl` is preferred when `url` is set (one round-trip); `downloadByDirectPath`
+fetches a fresh `mediaConn` then tries each host until one returns 200.
 
 ## Receiving Messages
 
@@ -754,13 +777,13 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M7 (recv)** — group `skmsg` decrypt + `SenderKeyDistributionMessage` processing on inbound
   - [x] **M7.G1** — query joined groups via `<iq xmlns="w:g2"><participating/></iq>`
   - [x] **M7.G2** — send text message to a group (per-device SKDM fan-out + single `<enc type=skmsg>`)
-- [ ] **M8** — Media upload/download (HKDF-AES-CBC + HMAC, mediaConn)
+- [x] **M8** — Media upload/download (HKDF-AES-CBC + HMAC, mediaConn)
   - [x] **M8.A** — media crypto primitives (AES-CBC + HKDF expand → iv/cipherKey/macKey + truncated HMAC, plus type-isolated info strings)
   - [x] **M8.B** — `<iq xmlns="w:m"><media_conn/></iq>` query + TTL-cached `MediaConn` record
   - [x] **M8.C** — HTTPS upload to `https://<host>/mms/<type>/<token>` via JDK HttpClient
   - [x] **M8.D** — `imageMessage` proto + `sendImage(chatJid, bytes, mimetype, caption)` API (DM + group)
   - [x] **M8.E** — `videoMessage` / `audioMessage` / `documentMessage` proto builders + `sendVideo` / `sendAudio` / `sendDocument` APIs (all reuse the M8.A-D crypto + upload)
-  - [ ] **M8.F** — receive-side `MediaDownloader` (HTTPS GET + retry + `MediaCrypto.decrypt`)
+  - [x] **M8.F** — receive-side `MediaDownloader` (URL or directPath via mediaConn host fan-out, envelope SHA-256 check, MAC verify, AES-CBC decrypt) + `JaWaClient.downloadMedia` async API
 - [ ] **M9** — App-state sync (LT-Hash, mutations, contact list, chat sync)
 - [ ] **M10** — Reconnect, error handling, ban detection
 - [ ] **M11** — Misc message types (reactions, edits, polls, replies, lists)
