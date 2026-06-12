@@ -128,6 +128,8 @@ the application JVM. Useful demo knobs: `jawa.session`, `jawa.phone`, `jawa.targ
     - [Reaction](#reaction)
     - [Reply / Quote](#reply--quote)
     - [Edit Message](#edit-message)
+    - [Quick-Reply Buttons](#quick-reply-buttons)
+    - [List Message](#list-message)
     - [Revoke (Delete for Everyone)](#revoke-delete-for-everyone)
 - [Media](#media)
     - [Send Image](#send-image)
@@ -474,6 +476,63 @@ String editId = client.sendEdit(
     "hello from jawa (edited)"
 ).join();
 ```
+
+### Quick-Reply Buttons
+
+Up to 3 buttons rendered below a body text. When the receiver taps one, you'll
+get back an inbound `buttonsResponseMessage` carrying the matching `buttonId`.
+
+```java
+import id.jawa.message.MessageEncoder.QuickReplyButton;
+
+client.sendButtonsMessage(
+    "628xxx@s.whatsapp.net",
+    "Pick one:",                       // body
+    "JaWa v0.0.3",                     // footer — nullable
+    List.of(
+        new QuickReplyButton("yes", "Yes ✅"),
+        new QuickReplyButton("no",  "No ❌"),
+        new QuickReplyButton("idk", "Maybe 🤔")
+    )
+).join();
+```
+
+> [!NOTE]
+> JaWa automatically appends the `<biz>` companion stanza WhatsApp's server
+> expects alongside any buttons / list / interactive payload. Without that node
+> the receiver silently drops the interactive surface and the message renders
+> blank — so JaWa does it for you. Implementation lives in `id.jawa.message.BizNode`.
+
+### List Message
+
+A dropdown of selectable rows grouped into sections. Receiver gets a body bubble
+with a "tap to open" target that opens a sheet listing each section's rows.
+
+```java
+import id.jawa.message.MessageEncoder.ListSection;
+import id.jawa.message.MessageEncoder.ListRow;
+
+client.sendListMessage(
+    "628xxx@s.whatsapp.net",
+    "JaWa Menu",                       // title
+    "Pilih command:",                  // body
+    "JaWa v0.0.3",                     // footer — nullable
+    "📋 Open menu",                    // buttonText (the tap target)
+    List.of(
+        new ListSection("Commands", List.of(
+            new ListRow("ping", "Ping bot",      "Cek bot hidup"),
+            new ListRow("info", "Server info",   "Show server status"),
+            new ListRow("menu", "Show menu",     null)
+        )),
+        new ListSection("Owner", List.of(
+            new ListRow("exec", "Exec shell",    "Owner-only command")
+        ))
+    )
+).join();
+```
+
+When the user picks a row, you'll get back a `listResponseMessage` carrying the
+chosen `rowId` (`"ping"` / `"info"` / `"menu"` / `"exec"` in the example above).
 
 ### Revoke (Delete for Everyone)
 
@@ -886,6 +945,9 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M11.B** — send quoted reply (DM + group)
   - [x] **M11.C** — edit a previously-sent message (DM + group)
   - [x] **M11.D** — revoke (delete-for-everyone) a message (DM + group)
+  - [x] **M11.E.A** — `sendListMessage` (dropdown of selectable rows, multi-section); receiver renders proper list sheet
+  - [x] **M11.E.B** — `sendButtonsMessage` (quick-reply buttons, max 3); receiver renders proper button bubbles
+  - [x] **M11.E.biz** — append `<biz>` stanza node alongside `<message>` when payload is buttons/list/interactive/template — without this the receiver app silently drops the interactive surface
 - [x] **M12** — Pluggable storage backends (in-memory, file, SQLite)
   - [x] **M12.A** — file-backed libsignal `SessionStore` (sessions survive restart, no `NoSessionException`/retry-receipt churn for previously-paired peers)
   - [x] **M12.B** — file-backed JaWa pre-key store (one-time pre-keys survive restart, re-mirrored into libsignal on connect)

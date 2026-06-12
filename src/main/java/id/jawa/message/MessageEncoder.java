@@ -59,6 +59,80 @@ public final class MessageEncoder {
         return com.google.protobuf.ByteString.copyFrom(b);
     }
 
+    /** One row in a list-message section — what the user picks from the dropdown. */
+    public record ListRow(String rowId, String title, String description) {}
+
+    /** Group of rows under a section header. */
+    public record ListSection(String title, java.util.List<ListRow> rows) {}
+
+    /**
+     * Build a {@code listMessage} — a dropdown of selectable options grouped into
+     * sections. The receiver gets a bubble with body text + a "buttonText" tap target
+     * that opens a sheet listing each section's rows.
+     *
+     * @param title       title shown above the dropdown sheet
+     * @param body        main body text in the bubble
+     * @param footer      footer caption shown below the body; nullable
+     * @param buttonText  the tap target on the bubble that opens the dropdown
+     * @param sections    one or more sections, each holding rows
+     */
+    public static Wa.Message listMessage(String title,
+                                         String body,
+                                         String footer,
+                                         String buttonText,
+                                         java.util.List<ListSection> sections) {
+        Wa.Message.ListMessage.Builder b = Wa.Message.ListMessage.newBuilder()
+            .setTitle(title)
+            .setDescription(body)
+            .setButtonText(buttonText)
+            .setListType(Wa.Message.ListMessage.ListType.SINGLE_SELECT);
+        if (footer != null && !footer.isEmpty()) b.setFooterText(footer);
+        for (ListSection s : sections) {
+            Wa.Message.ListMessage.Section.Builder sb = Wa.Message.ListMessage.Section.newBuilder();
+            if (s.title() != null) sb.setTitle(s.title());
+            for (ListRow r : s.rows()) {
+                Wa.Message.ListMessage.Row.Builder rb = Wa.Message.ListMessage.Row.newBuilder();
+                if (r.rowId() != null) rb.setRowId(r.rowId());
+                if (r.title() != null) rb.setTitle(r.title());
+                if (r.description() != null) rb.setDescription(r.description());
+                sb.addRows(rb.build());
+            }
+            b.addSections(sb.build());
+        }
+        return Wa.Message.newBuilder().setListMessage(b.build()).build();
+    }
+
+    /** Quick-reply button on a {@code buttonsMessage} — id is echoed back when tapped. */
+    public record QuickReplyButton(String buttonId, String displayText) {}
+
+    /**
+     * Build a {@code buttonsMessage} — up to 3 quick-reply buttons rendered below a
+     * body text. When the user taps a button, the recipient gets a
+     * {@code buttonsResponseMessage} carrying the {@code buttonId}.
+     *
+     * @param body     content text shown above the buttons
+     * @param footer   footer text; nullable
+     * @param buttons  1-3 quick-reply buttons
+     */
+    public static Wa.Message buttonsMessage(String body, String footer,
+                                            java.util.List<QuickReplyButton> buttons) {
+        Wa.Message.ButtonsMessage.Builder b = Wa.Message.ButtonsMessage.newBuilder()
+            .setContentText(body)
+            .setHeaderType(Wa.Message.ButtonsMessage.HeaderType.EMPTY);
+        if (footer != null && !footer.isEmpty()) b.setFooterText(footer);
+        for (QuickReplyButton qb : buttons) {
+            Wa.Message.ButtonsMessage.Button button = Wa.Message.ButtonsMessage.Button.newBuilder()
+                .setButtonId(qb.buttonId())
+                .setButtonText(Wa.Message.ButtonsMessage.Button.ButtonText.newBuilder()
+                    .setDisplayText(qb.displayText())
+                    .build())
+                .setType(Wa.Message.ButtonsMessage.Button.Type.RESPONSE)
+                .build();
+            b.addButtons(button);
+        }
+        return Wa.Message.newBuilder().setButtonsMessage(b.build()).build();
+    }
+
     /**
      * Build a {@code videoMessage} pointing at a freshly-uploaded encrypted video.
      *

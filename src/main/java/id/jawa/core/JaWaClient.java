@@ -317,11 +317,13 @@ public final class JaWaClient implements AutoCloseable {
         int attempt = reconnectAttempts.incrementAndGet();
         long sleepMs = RECONNECT_BACKOFF_MS[Math.min(attempt - 1, RECONNECT_BACKOFF_MS.length - 1)];
         LOG.info("Auto-reconnect attempt {} in {}ms", attempt, sleepMs);
-        if (frame != null) { try { frame.close(); } catch (Throwable ignored) {} frame = null; }
-        if (keepalive != null) { keepalive.shutdownNow(); keepalive = null; }
-        noise = null;
-        transport = null;
-        pendingIqResults.clear();
+        synchronized (this) {
+            if (frame != null) { try { frame.close(); } catch (Throwable ignored) {} frame = null; }
+            if (keepalive != null) { keepalive.shutdownNow(); keepalive = null; }
+            noise = null;
+            transport = null;
+            pendingIqResults.clear();
+        }
         try { Thread.sleep(sleepMs); }
         catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
         if (closing.get() || terminated.get()) return;
@@ -614,6 +616,40 @@ public final class JaWaClient implements AutoCloseable {
             return sendGroupMessage(chatJid, msg);
         }
         return sendDmMessage(chatJid, msg);
+    }
+
+    /**
+     * Send a {@code listMessage} — dropdown of selectable options grouped into
+     * sections. Routes DM vs group based on {@code chatJid} suffix.
+     */
+    public java.util.concurrent.CompletableFuture<String> sendListMessage(
+            String chatJid,
+            String title,
+            String body,
+            String footer,
+            String buttonText,
+            java.util.List<MessageEncoder.ListSection> sections) {
+        id.jawa.proto.Wa.Message msg = MessageEncoder.listMessage(
+            title, body, footer, buttonText, sections);
+        return chatJid.endsWith("@g.us")
+            ? sendGroupMessage(chatJid, msg)
+            : sendDmMessage(chatJid, msg);
+    }
+
+    /**
+     * Send a {@code buttonsMessage} — up to 3 quick-reply buttons rendered below
+     * {@code body}. When tapped, the recipient gets a {@code buttonsResponseMessage}
+     * with the matching {@code buttonId}.
+     */
+    public java.util.concurrent.CompletableFuture<String> sendButtonsMessage(
+            String chatJid,
+            String body,
+            String footer,
+            java.util.List<MessageEncoder.QuickReplyButton> buttons) {
+        id.jawa.proto.Wa.Message msg = MessageEncoder.buttonsMessage(body, footer, buttons);
+        return chatJid.endsWith("@g.us")
+            ? sendGroupMessage(chatJid, msg)
+            : sendDmMessage(chatJid, msg);
     }
 
     /**

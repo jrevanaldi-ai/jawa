@@ -125,6 +125,8 @@ public final class MessageSender {
             byte[] deviceIdentity = encodeDeviceIdentityForSend(creds.account);
             outer.add(new BinaryNode("device-identity", Map.of(), deviceIdentity));
         }
+        BinaryNode biz = BizNode.buildIfNeeded(message);
+        if (biz != null) outer.add(biz);
 
         BinaryNode stanza = new BinaryNode("message",
             Map.of(

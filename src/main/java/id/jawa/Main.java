@@ -38,7 +38,7 @@ public final class Main {
         System.out.println("Signal dir  : " + signalDir.toAbsolutePath());
 
         FileAuthStore store = new FileAuthStore(sessionFile);
-        JaWaClient client = new JaWaClient(store, signalDir);
+        JaWaClient client = new JaWaClient(store, signalDir).autoReconnect(false);
 
         client.listener(new JaWaClient.Listener() {
             @Override public void onPaired(String jid, String pushName, String platform) {
@@ -71,6 +71,60 @@ public final class Main {
 
             @Override public void onConnected() {
                 System.out.println(">>> Connected");
+                // Optional: send a quick-reply buttons message
+                // (-Djawa.buttons_chat / _body / _footer / _buttons).
+                // _buttons format: "id1:label1|id2:label2|id3:label3" (max 3).
+                String buttonsChat = System.getProperty("jawa.buttons_chat");
+                if (buttonsChat != null && !buttonsChat.isBlank()) {
+                    String body = System.getProperty("jawa.buttons_body", "");
+                    String footer = System.getProperty("jawa.buttons_footer", "");
+                    String spec = System.getProperty("jawa.buttons", "");
+                    java.util.List<id.jawa.message.MessageEncoder.QuickReplyButton> btns = new java.util.ArrayList<>();
+                    for (String pair : spec.split("\\|")) {
+                        if (pair.isBlank()) continue;
+                        String[] parts = pair.split(":", 2);
+                        if (parts.length != 2) continue;
+                        btns.add(new id.jawa.message.MessageEncoder.QuickReplyButton(parts[0], parts[1]));
+                    }
+                    client.sendButtonsMessage(buttonsChat, body, footer.isEmpty() ? null : footer, btns)
+                        .whenComplete((msgId, err) -> {
+                            if (err != null) { System.err.println(">>> buttons send failed: " + err); err.printStackTrace(); return; }
+                            System.out.println(">>> Sent buttons id=" + msgId + " (" + btns.size() + " buttons)");
+                        });
+                    return;
+                }
+                // Optional: send a list message (-Djawa.list_chat / _title / _body / _footer /
+                // _button / _rows). _rows format: "secTitle1>id1=t1|id2=t2|;secTitle2>id3=t3"
+                String listChat = System.getProperty("jawa.list_chat");
+                if (listChat != null && !listChat.isBlank()) {
+                    String title = System.getProperty("jawa.list_title", "");
+                    String body = System.getProperty("jawa.list_body", "");
+                    String footer = System.getProperty("jawa.list_footer", "");
+                    String buttonText = System.getProperty("jawa.list_button", "Select");
+                    String rowsSpec = System.getProperty("jawa.list_rows", "");
+                    java.util.List<id.jawa.message.MessageEncoder.ListSection> sections = new java.util.ArrayList<>();
+                    for (String secSpec : rowsSpec.split(";")) {
+                        if (secSpec.isBlank()) continue;
+                        String[] hr = secSpec.split(">", 2);
+                        String secTitle = hr.length > 1 ? hr[0] : null;
+                        String rowsPart = hr.length > 1 ? hr[1] : hr[0];
+                        java.util.List<id.jawa.message.MessageEncoder.ListRow> rows = new java.util.ArrayList<>();
+                        for (String r : rowsPart.split("\\|")) {
+                            if (r.isBlank()) continue;
+                            String[] kv = r.split("=", 2);
+                            if (kv.length != 2) continue;
+                            rows.add(new id.jawa.message.MessageEncoder.ListRow(kv[0], kv[1], null));
+                        }
+                        sections.add(new id.jawa.message.MessageEncoder.ListSection(secTitle, rows));
+                    }
+                    client.sendListMessage(listChat, title, body,
+                            footer.isEmpty() ? null : footer, buttonText, sections)
+                        .whenComplete((msgId, err) -> {
+                            if (err != null) { System.err.println(">>> list send failed: " + err); err.printStackTrace(); return; }
+                            System.out.println(">>> Sent list id=" + msgId + " (" + sections.size() + " section(s))");
+                        });
+                    return;
+                }
                 // Optional: send an image (-Djawa.image_chat / _path / _mimetype / _caption).
                 String imageChat = System.getProperty("jawa.image_chat");
                 if (imageChat != null && !imageChat.isBlank()) {
