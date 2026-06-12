@@ -25,8 +25,3 @@ auth/
 *.session
 *.creds
 
-# References (cloned for porting; not part of JaWa)
-references/
-
-# Claude Code local guidance (not shared)
-CLAUDE.md
