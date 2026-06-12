@@ -122,4 +122,30 @@ public final class FilePreKeyStorage {
     public Map<Integer, KeyPair25519> snapshot() {
         return new LinkedHashMap<>(cache);
     }
+
+    /**
+     * Drop every pre-key whose id is NOT among the {@code keepHighestN} highest ids
+     * currently in the store. Pre-keys are consumed by peers via one-shot X3DH fetch,
+     * so the very oldest ids are most likely already burned server-side — keeping
+     * only the recent slice trades a small theoretical "peer fetched ancient id then
+     * sat on it for months" risk for bounded disk usage.
+     *
+     * @return number of pre-keys actually deleted
+     */
+    public int pruneKeepHighest(int keepHighestN) {
+        if (cache.size() <= keepHighestN) return 0;
+        java.util.List<Integer> sortedIds = new java.util.ArrayList<>(cache.keySet());
+        java.util.Collections.sort(sortedIds);
+        int dropCount = sortedIds.size() - keepHighestN;
+        int dropped = 0;
+        for (int i = 0; i < dropCount; i++) {
+            int id = sortedIds.get(i);
+            cache.remove(id);
+            try { Files.deleteIfExists(baseDir.resolve(id + SUFFIX)); dropped++; }
+            catch (IOException e) { LOG.warn("Failed to delete stale pre-key {}: {}", id, e.toString()); }
+        }
+        LOG.info("Pruned {} stale pre-key(s); {} remaining (kept highest {} id(s))",
+            dropped, cache.size(), keepHighestN);
+        return dropped;
+    }
 }

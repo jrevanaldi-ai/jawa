@@ -206,6 +206,12 @@ public final class JaWaClient implements AutoCloseable {
         // <enc type=pkmsg> referencing a previously-uploaded one-time pre-key id can
         // still resolve after restart.
         if (preKeyStorage != null) {
+            // Prune accumulated pre-keys before re-mirroring. Each successful login uploads
+            // PRE_KEY_UPLOAD_COUNT fresh keys (default 30) and the storage never clears the
+            // old ones on its own — after a few hundred connects the disk + libsignal mirror
+            // both balloon (we hit 7640+ keys mid-development, which delayed startup enough
+            // for the server to time out the handshake). Cap to 600 = ~20 sessions worth.
+            preKeyStorage.pruneKeepHighest(600);
             for (var entry : preKeyStorage.snapshot().entrySet()) {
                 try {
                     byte[] prefixedPub = Curve25519.prependType(entry.getValue().publicKey());

@@ -1126,6 +1126,7 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M12.A** — file-backed libsignal `SessionStore` (sessions survive restart, no `NoSessionException`/retry-receipt churn for previously-paired peers)
   - [x] **M12.B** — file-backed JaWa pre-key store (one-time pre-keys survive restart, re-mirrored into libsignal on connect)
   - [x] **M12.C** — file-backed sender-key store (group sender-chain state survives restart, no SKDM re-distribution on first outbound group message after reconnect)
+  - [x] **M12.D** — `FilePreKeyStorage.pruneKeepHighest(n)`; JaWaClient auto-prunes to the 600 highest pre-key ids on connect, capping disk usage at ~20 sessions worth and stopping the startup-delay-then-server-timeout failure seen at ~7000+ accumulated keys
 - [x] **core** — `<presence type="available">` on login + ack `<notification>`/`<receipt>` (without these the server treats the device as offline and stops delivering `<message>` stanzas)
 
 ## Gotchas
