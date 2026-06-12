@@ -151,7 +151,6 @@ the application JVM. Useful demo knobs: `jawa.session`, `jawa.phone`, `jawa.targ
     - [Send IQ with Response](#send-iq-with-response)
 - [Status — what works today](#status--what-works-today)
 - [Gotchas](#gotchas)
-- [Docs](#docs)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -857,18 +856,6 @@ client.sendIqAsync(iq).thenAccept(response -> {
 - **`creds.account == null` is the "is pairing" signal** — used by `connect()` to
   choose register vs login payload, and by `requestPairingCode` to refuse if already
   paired. Don't repurpose that field.
-
-## Docs
-
-- [`docs/protocol/01-transport-noise.md`](docs/protocol/01-transport-noise.md) — Noise handshake + WebSocket spec
-- [`docs/protocol/02-binary-node.md`](docs/protocol/02-binary-node.md) — WA binary encoding spec
-- More specs land as features ship.
-
-For protocol details not yet formalised here, the source of truth is the upstream
-code in `references/`:
-
-- [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) (TypeScript)
-- [tulir/whatsmeow](https://github.com/tulir/whatsmeow) (Go)
 
 ## Contributing
 
