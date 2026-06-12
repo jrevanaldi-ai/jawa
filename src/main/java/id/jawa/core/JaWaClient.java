@@ -71,10 +71,11 @@ public final class JaWaClient implements AutoCloseable {
 
     private final AuthStore store;
     private SignalKeyStore signalStore = new InMemorySignalKeyStore();
-    private final id.jawa.signal.InMemorySenderKeyStore senderKeyStore = new id.jawa.signal.InMemorySenderKeyStore();
+    private id.jawa.signal.InMemorySenderKeyStore senderKeyStore = new id.jawa.signal.InMemorySenderKeyStore();
     private final java.nio.file.Path signalDir; // null = sessions in-memory
     private id.jawa.signal.FileSessionStorage sessionStorage; // built once when connecting if signalDir is set
     private id.jawa.signal.FilePreKeyStorage preKeyStorage;   // ditto
+    private id.jawa.signal.FileSenderKeyStorage senderKeyStorage; // ditto
     private JaWaProtocolStore protocolStore;  // initialised in connect() once creds are loaded
     private PairingCodeHandler pairCodeHandler; // populated on demand for pair-code flow
     private java.util.concurrent.ScheduledExecutorService keepalive;
@@ -170,9 +171,11 @@ public final class JaWaClient implements AutoCloseable {
 
         transport = noise.finish();
         if (signalDir != null && sessionStorage == null) {
-            sessionStorage = new id.jawa.signal.FileSessionStorage(signalDir.resolve("sessions"));
-            preKeyStorage  = new id.jawa.signal.FilePreKeyStorage(signalDir.resolve("prekeys"));
-            signalStore    = new InMemorySignalKeyStore(preKeyStorage);
+            sessionStorage   = new id.jawa.signal.FileSessionStorage(signalDir.resolve("sessions"));
+            preKeyStorage    = new id.jawa.signal.FilePreKeyStorage(signalDir.resolve("prekeys"));
+            senderKeyStorage = new id.jawa.signal.FileSenderKeyStorage(signalDir.resolve("sender-keys"));
+            signalStore      = new InMemorySignalKeyStore(preKeyStorage);
+            senderKeyStore   = new id.jawa.signal.InMemorySenderKeyStore(senderKeyStorage);
         }
         protocolStore = new JaWaProtocolStore(creds, sessionStorage);
         // Re-mirror any persisted pre-keys into libsignal's protocolStore so inbound

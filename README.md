@@ -249,10 +249,11 @@ single-arg overload) to keep Signal state in memory.
 
 ```
 sessions/
-├── mydev.session                          # AuthCreds: Noise + identity keys
+├── mydev.session                                # AuthCreds: Noise + identity keys
 └── mydev.signal/
-    ├── sessions/<base64name>__<dev>.session   # one libsignal SessionRecord per peer device
-    └── prekeys/<id>.prekey                    # one 64-byte priv||pub per one-time pre-key
+    ├── sessions/<base64name>__<dev>.session     # one libsignal SessionRecord per peer device
+    ├── prekeys/<id>.prekey                      # one 64-byte priv||pub per one-time pre-key
+    └── sender-keys/<b64group>__<b64sender>__<dev>.senderkey  # one SenderKeyRecord per (group, sender)
 ```
 
 Implement your own `AuthStore` for SQLite / encrypted keystore / cloud-backed
@@ -265,11 +266,6 @@ public interface AuthStore {
 }
 ```
 
-> [!NOTE]
-> **Sender-key state** (group sender-keys for outbound `skmsg`) is **still
-> in-memory** (`InMemorySenderKeyStore`). After restart, the first outbound
-> group message rebuilds and re-distributes the SKDM to every participant
-> device. Persistent sender-key storage is tracked under **M12.C**.
 
 ## Handling Events
 
@@ -660,10 +656,10 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M11.B** — send quoted reply (DM + group)
   - [x] **M11.C** — edit a previously-sent message (DM + group)
   - [x] **M11.D** — revoke (delete-for-everyone) a message (DM + group)
-- [ ] **M12** — Pluggable storage backends (in-memory, file, SQLite)
+- [x] **M12** — Pluggable storage backends (in-memory, file, SQLite)
   - [x] **M12.A** — file-backed libsignal `SessionStore` (sessions survive restart, no `NoSessionException`/retry-receipt churn for previously-paired peers)
   - [x] **M12.B** — file-backed JaWa pre-key store (one-time pre-keys survive restart, re-mirrored into libsignal on connect)
-  - [ ] **M12.C** — file-backed sender-key store (group sender-key state)
+  - [x] **M12.C** — file-backed sender-key store (group sender-chain state survives restart, no SKDM re-distribution on first outbound group message after reconnect)
 - [x] **core** — `<presence type="available">` on login + ack `<notification>`/`<receipt>` (without these the server treats the device as offline and stops delivering `<message>` stanzas)
 
 ## Gotchas
