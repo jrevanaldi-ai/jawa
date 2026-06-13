@@ -784,18 +784,70 @@ public final class JaWaClient implements AutoCloseable {
     }
 
     /**
-     * Send an {@code interactiveMessage.carouselMessage} — horizontally-scrollable
-     * cards, each with its own body and {@link MessageEncoder.CtaButton} set.
+     * Input shape for {@link #sendCarousel} — raw media bytes + buttons per card,
+     * before the per-card upload step. Use {@code mimetype} starting with
+     * {@code "image/"} or {@code "video/"} to pick the upload pipeline.
+     */
+    public record CarouselCardInput(
+        String title,
+        String caption,
+        byte[] mediaBytes,
+        String mimetype,
+        String footer,
+        java.util.List<MessageEncoder.CtaButton> buttons
+    ) {}
+
+    /**
+     * Send a carousel — horizontally-scrollable cards. Each card's media is encrypted
+     * and uploaded in parallel; once all uploads land, the cards are assembled into
+     * an {@code interactiveMessage.carouselMessage} and routed through the existing
+     * DM/group pipeline.
+     *
+     * <p>WhatsApp rejects cards without a media header, so every input must carry
+     * non-empty {@code mediaBytes}.
      */
     public java.util.concurrent.CompletableFuture<String> sendCarousel(
             String chatJid,
             String body,
             String footer,
-            java.util.List<MessageEncoder.CarouselCard> cards) {
-        id.jawa.proto.Wa.Message msg = MessageEncoder.interactiveCarousel(body, footer, cards);
-        return chatJid.endsWith("@g.us")
-            ? sendGroupMessage(chatJid, msg)
-            : sendDmMessage(chatJid, msg);
+            java.util.List<CarouselCardInput> inputs) {
+        java.util.List<java.util.concurrent.CompletableFuture<MessageEncoder.CarouselCard>> futures =
+            new java.util.ArrayList<>();
+        for (CarouselCardInput in : inputs) {
+            boolean isVideo = in.mimetype() != null && in.mimetype().startsWith("video/");
+            id.jawa.media.MediaCrypto.MediaType type = isVideo
+                ? id.jawa.media.MediaCrypto.MediaType.VIDEO
+                : id.jawa.media.MediaCrypto.MediaType.IMAGE;
+            futures.add(encryptAndUpload(in.mediaBytes(), type).thenApply(u -> {
+                if (isVideo) {
+                    id.jawa.proto.Wa.Message inner = MessageEncoder.videoMessage(
+                        u.upload().url(), u.upload().directPath(),
+                        u.mediaKey(),
+                        u.enc().fileSha256(), u.enc().fileEncSha256(),
+                        in.mediaBytes().length, in.mimetype(),
+                        in.caption(), 0, 0, 0);
+                    return new MessageEncoder.CarouselCard(
+                        in.title(), in.caption(), null, inner.getVideoMessage(),
+                        in.footer(), in.buttons());
+                }
+                id.jawa.proto.Wa.Message inner = MessageEncoder.imageMessage(
+                    u.upload().url(), u.upload().directPath(),
+                    u.mediaKey(),
+                    u.enc().fileSha256(), u.enc().fileEncSha256(),
+                    in.mediaBytes().length, in.mimetype(), in.caption());
+                return new MessageEncoder.CarouselCard(
+                    in.title(), in.caption(), inner.getImageMessage(), null,
+                    in.footer(), in.buttons());
+            }));
+        }
+        java.util.concurrent.CompletableFuture<Void> all = java.util.concurrent.CompletableFuture
+            .allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]));
+        return all.thenCompose(v -> {
+            java.util.List<MessageEncoder.CarouselCard> cards = new java.util.ArrayList<>();
+            for (var f : futures) cards.add(f.join());
+            id.jawa.proto.Wa.Message msg = MessageEncoder.interactiveCarousel(body, footer, cards);
+            return sendBuiltMessage(chatJid, msg);
+        });
     }
 
     /**

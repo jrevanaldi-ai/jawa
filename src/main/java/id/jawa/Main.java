@@ -170,18 +170,26 @@ public final class Main {
                                 .whenComplete((id, err) -> System.out.println(err != null ? ">>> err " + err : ">>> Sent quick_reply id=" + id));
                         }
                         case "carousel" -> {
-                            java.util.List<id.jawa.message.MessageEncoder.CarouselCard> cards = java.util.List.of(
-                                new id.jawa.message.MessageEncoder.CarouselCard("Card 1", "First card body", null, java.util.List.of(
-                                    id.jawa.message.MessageEncoder.CtaButton.url("🌐 Visit", "https://github.com/jochris/JaWa")
-                                )),
-                                new id.jawa.message.MessageEncoder.CarouselCard("Card 2", "Second card body", null, java.util.List.of(
-                                    id.jawa.message.MessageEncoder.CtaButton.copy("📋 Copy", "JAWA-CARD2")
-                                )),
-                                new id.jawa.message.MessageEncoder.CarouselCard("Card 3", "Third card body", null, java.util.List.of(
-                                    id.jawa.message.MessageEncoder.CtaButton.quickReply("⭐ Star", "qr_star")
-                                ))
-                            );
-                            client.sendCarousel(demoChat, null, null, cards)
+                            // -Djawa.carousel_image=<path1>,<path2>,<path3> (jpegs)
+                            String paths = System.getProperty("jawa.carousel_image", "");
+                            if (paths.isEmpty()) { System.err.println(">>> need -Djawa.carousel_image=path1,path2,..."); return; }
+                            java.util.List<id.jawa.core.JaWaClient.CarouselCardInput> inputs = new java.util.ArrayList<>();
+                            String[] arr = paths.split(",");
+                            id.jawa.message.MessageEncoder.CtaButton[] btns = new id.jawa.message.MessageEncoder.CtaButton[] {
+                                id.jawa.message.MessageEncoder.CtaButton.url("🌐 Visit", "https://github.com/jochris/JaWa"),
+                                id.jawa.message.MessageEncoder.CtaButton.copy("📋 Copy", "JAWA-CARD"),
+                                id.jawa.message.MessageEncoder.CtaButton.quickReply("⭐ Star", "qr_star")
+                            };
+                            for (int i = 0; i < arr.length; i++) {
+                                try {
+                                    byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(arr[i].trim()));
+                                    inputs.add(new id.jawa.core.JaWaClient.CarouselCardInput(
+                                        "Card " + (i + 1), "Caption " + (i + 1),
+                                        bytes, "image/jpeg", null,
+                                        java.util.List.of(btns[i % btns.length])));
+                                } catch (java.io.IOException e) { System.err.println(">>> read " + arr[i] + " failed: " + e); }
+                            }
+                            client.sendCarousel(demoChat, null, null, inputs)
                                 .whenComplete((id, err) -> System.out.println(err != null ? ">>> err " + err : ">>> Sent carousel id=" + id));
                         }
                         default -> System.err.println(">>> unknown demo: " + demo);

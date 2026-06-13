@@ -270,21 +270,23 @@ public final class MessageEncoder {
     }
 
     /**
-     * One card inside a {@link #interactiveCarousel} bubble. Each card has its own
-     * body text + native-flow buttons; cards scroll horizontally on the receiver UI.
+     * One card inside a {@link #interactiveCarousel} bubble. Each card requires a
+     * pre-built media header — either {@code imageHeader} OR {@code videoHeader}, not
+     * both — produced by uploading the media first; see {@link
+     * id.jawa.core.JaWaClient#sendCarousel} for the convenience that handles the
+     * encrypt + upload step before assembling the proto.
+     *
+     * <p>WhatsApp's app rejects cards without a media header as "Unsupported message".
      */
-    public record CarouselCard(String title, String body, String footer,
+    public record CarouselCard(String title, String caption,
+                               Wa.Message.ImageMessage imageHeader,
+                               Wa.Message.VideoMessage videoHeader,
+                               String footer,
                                java.util.List<CtaButton> buttons) {}
 
     /**
      * Build an {@code interactiveMessage.carouselMessage} — horizontally-scrollable
-     * cards, each with its own body + button set.
-     *
-     * <p><b>Note:</b> WhatsApp's app requires each card to carry an {@code imageMessage} /
-     * {@code videoMessage} / {@code productMessage} header to render — pure-text cards
-     * are silently dropped as "Unsupported message". Wiring an M8 media upload into the
-     * card header is open work; until then this builder produces a stanza the server
-     * accepts but the receiver app won't render.
+     * cards, each with its own media header, caption body, and button set.
      */
     public static Wa.Message interactiveCarousel(String body, String footer,
                                                  java.util.List<CarouselCard> cards) {
@@ -301,16 +303,19 @@ public final class MessageEncoder {
                     .setButtonParamsJson(btn.paramsJson())
                     .build());
             }
+            Wa.Message.InteractiveMessage.Header.Builder hb = Wa.Message.InteractiveMessage.Header.newBuilder()
+                .setTitle(card.title() == null ? "" : card.title())
+                .setHasMediaAttachment(true);
+            if (card.imageHeader() != null)       hb.setImageMessage(card.imageHeader());
+            else if (card.videoHeader() != null)  hb.setVideoMessage(card.videoHeader());
+            else throw new IllegalArgumentException("CarouselCard requires imageHeader or videoHeader");
+
             Wa.Message.InteractiveMessage.Builder cardMsg = Wa.Message.InteractiveMessage.newBuilder()
+                .setHeader(hb.build())
                 .setBody(Wa.Message.InteractiveMessage.Body.newBuilder()
-                    .setText(card.body() == null ? "" : card.body())
+                    .setText(card.caption() == null ? "" : card.caption())
                     .build())
                 .setNativeFlowMessage(nf.build());
-            if (card.title() != null && !card.title().isEmpty()) {
-                cardMsg.setHeader(Wa.Message.InteractiveMessage.Header.newBuilder()
-                    .setTitle(card.title())
-                    .build());
-            }
             if (card.footer() != null && !card.footer().isEmpty()) {
                 cardMsg.setFooter(Wa.Message.InteractiveMessage.Footer.newBuilder()
                     .setText(card.footer()).build());

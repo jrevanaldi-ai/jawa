@@ -134,6 +134,7 @@ the application JVM. Useful demo knobs: `jawa.session`, `jawa.phone`, `jawa.targ
     - [Edit Message](#edit-message)
     - [CTA Buttons (URL / Copy / Call / Quick-Reply)](#cta-buttons-url--copy--call--quick-reply)
     - [Quick-Reply Buttons](#quick-reply-buttons)
+    - [Carousel](#carousel)
     - [List Message](#list-message)
     - [Revoke (Delete for Everyone)](#revoke-delete-for-everyone)
 - [Media](#media)
@@ -676,6 +677,35 @@ client.sendButtonsMessage(
 > the receiver silently drops the interactive surface and the message renders
 > blank — so JaWa does it for you. Implementation lives in `id.jawa.message.BizNode`.
 
+### Carousel
+
+Horizontally-scrollable cards, each with its own image header, caption, footer, and
+button set. JaWa uploads every card's media in parallel, then assembles the proto
+in one shot.
+
+```java
+import id.jawa.core.JaWaClient.CarouselCardInput;
+
+byte[] img1 = Files.readAllBytes(Path.of("card1.jpg"));
+byte[] img2 = Files.readAllBytes(Path.of("card2.jpg"));
+byte[] img3 = Files.readAllBytes(Path.of("card3.jpg"));
+
+client.sendCarousel("628xxx@s.whatsapp.net", null, null, List.of(
+    new CarouselCardInput("Card 1", "Caption 1", img1, "image/jpeg", null, List.of(
+        CtaButton.url("🌐 Visit", "https://github.com/jochris/JaWa")
+    )),
+    new CarouselCardInput("Card 2", "Caption 2", img2, "image/jpeg", null, List.of(
+        CtaButton.copy("📋 Copy", "JAWA-CARD2")
+    )),
+    new CarouselCardInput("Card 3", "Caption 3", img3, "image/jpeg", null, List.of(
+        CtaButton.quickReply("⭐ Star", "qr_star")
+    ))
+)).join();
+```
+
+Each card requires non-empty `mediaBytes` — WhatsApp rejects cards without a media
+header. Use `mimetype` starting with `"video/"` to upload a video card instead.
+
 ### List Message
 
 A dropdown of selectable rows grouped into sections. Receiver gets a body bubble
@@ -1172,7 +1202,7 @@ client.sendIqAsync(iq).thenAccept(response -> {
   - [x] **M11.G** — view-once: `sendImageViewOnce` / `sendVideoViewOnce` / `sendAudioViewOnce` wrap the inner media in `viewOnceMessageV2` (image/video) or `viewOnceMessageV2Extension` (audio); receiver can open the media exactly once before it's purged
   - [x] **M11.H** — receive interactive responses: `Decoded.interactive` carries the parsed `buttonsResponseMessage` / `listResponseMessage` / `interactiveResponseMessage` so bots can react to button / row / native-flow taps
   - [x] **M11.I** — `sendLocation` (static map pin via `locationMessage`) + `sendContact` (vCard via `contactMessage`)
-  - [ ] **M11.E.G** — carousel (`interactiveMessage.carouselMessage`): low-level API `sendCarousel` lands but each card needs an `imageMessage`/`videoMessage` header, which depends on the M8 media pipeline being wired into card construction
+  - [x] **M11.E.G** — carousel with media header: `sendCarousel(chatJid, body?, footer?, List<CarouselCardInput>)` uploads every card's image / video in parallel, builds the inner `imageMessage` / `videoMessage` for each card header, and ships the whole `interactiveMessage.carouselMessage` in one go. Live-verified rendering on regular accounts with three JPEG cards.
 - [x] **M12** — Pluggable storage backends (in-memory, file, SQLite)
   - [x] **M12.A** — file-backed libsignal `SessionStore` (sessions survive restart, no `NoSessionException`/retry-receipt churn for previously-paired peers)
   - [x] **M12.B** — file-backed JaWa pre-key store (one-time pre-keys survive restart, re-mirrored into libsignal on connect)
